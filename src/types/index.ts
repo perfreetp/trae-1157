@@ -56,6 +56,7 @@ export interface PatrolRecord {
   content: string
   issues: string
   photos: string[]
+  tags?: string[]
 }
 
 export interface ThresholdConfig {

@@ -434,7 +434,7 @@ export default function Dashboard() {
   )
 
   return (
-    <div className="min-h-screen bg-surface p-6">
+    <div className="space-y-6">
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
           {indicatorSummaries.map((s) => (

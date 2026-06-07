@@ -13,10 +13,9 @@ import {
   ChevronDown,
   X,
 } from 'lucide-react';
-import type { PatrolRecord, MonitoringPoint } from '@/types';
+import type { PatrolRecord } from '@/types';
 import { useStore } from '@/store';
 import GlassCard from '@/components/GlassCard';
-import StatusBadge from '@/components/StatusBadge';
 
 const QUICK_TAGS = ['设施完好', '水量正常', '水质清澈', '周边整洁', '标识完好'];
 const STEP_LABELS = ['选择点位', '巡查内容', '现场照片'];
@@ -63,6 +62,7 @@ export default function PatrolPage() {
 
   const handleSubmit = () => {
     addPatrolRecord({
+      id: `patrol-${Date.now()}`,
       pointId: selectedPoint,
       pointName: monitoringPoints.find(p => p.id === selectedPoint)?.name ?? '',
       inspector: inspectorName,
@@ -406,7 +406,9 @@ export default function PatrolPage() {
                     {isExpanded && record.tags && record.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-2">
                         {record.tags.map(tag => (
-                          <StatusBadge key={tag} status={tag} />
+                          <span key={tag} className="rounded-full bg-data-blue/15 text-data-blue border border-data-blue/30 px-2 py-0.5 text-xs font-medium">
+                            {tag}
+                          </span>
                         ))}
                       </div>
                     )}
