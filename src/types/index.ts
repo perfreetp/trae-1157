@@ -27,7 +27,15 @@ export interface AlertRecord {
   level: 'critical' | 'warning' | 'info'
   status: 'pending' | 'processing' | 'resolved'
   createdAt: string
+  confirmedAt?: string
+  confirmedBy?: string
+  processingAt?: string
+  processingBy?: string
+  processingNote?: string
   resolvedAt?: string
+  resolvedBy?: string
+  resolvedResult?: string
+  resolvedNote?: string
   description: string
   disposition?: string
 }
@@ -57,6 +65,9 @@ export interface PatrolRecord {
   issues: string
   photos: string[]
   tags?: string[]
+  recheckTaskId?: string
+  recheckResult?: string
+  recheckResolvedAt?: string
 }
 
 export interface ThresholdConfig {

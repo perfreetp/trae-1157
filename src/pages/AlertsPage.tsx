@@ -11,12 +11,14 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import {
-  AlertTriangle,
   CheckCircle,
   Clock,
   Search,
   Save,
   X,
+  User,
+  FileText,
+  ChevronRight,
 } from 'lucide-react'
 import type { AlertRecord } from '@/types'
 import { useStore } from '@/store'
@@ -45,6 +47,8 @@ const STATUS_BADGE: Record<string, { level: 'critical' | 'info' | 'online'; labe
 
 const PIE_COLORS = ['#EF4444', '#F59E0B', '#06B6D4']
 
+type DetailStep = 'processing' | 'closing'
+
 export default function AlertsPage() {
   const { alerts, thresholds, updateAlert, updateThreshold } = useStore()
 
@@ -52,9 +56,14 @@ export default function AlertsPage() {
   const [levelFilter, setLevelFilter] = useState<string>('')
   const [searchText, setSearchText] = useState('')
   const [selectedAlert, setSelectedAlert] = useState<AlertRecord | null>(null)
-  const [dispositionText, setDispositionText] = useState('')
-  const [dispositionPerson, setDispositionPerson] = useState('')
-  const [dispositionResult, setDispositionResult] = useState('')
+  const [detailStep, setDetailStep] = useState<DetailStep>('processing')
+  const [confirmModalAlert, setConfirmModalAlert] = useState<AlertRecord | null>(null)
+  const [confirmName, setConfirmName] = useState('')
+  const [processingNote, setProcessingNote] = useState('')
+  const [processingBy, setProcessingBy] = useState('')
+  const [resolvedResult, setResolvedResult] = useState('')
+  const [resolvedNote, setResolvedNote] = useState('')
+  const [resolvedBy, setResolvedBy] = useState('')
   const [thresholdEdits, setThresholdEdits] = useState<Record<string, { min: string; max: string }>>({})
 
   const filteredAlerts = useMemo(() => {
@@ -96,29 +105,65 @@ export default function AlertsPage() {
     { name: '提示', value: levelCounts.info },
   ].filter((d) => d.value > 0)
 
-  const handleStartDisposition = (alert: AlertRecord) => {
-    setSelectedAlert(alert)
-    setDispositionText(alert.disposition || '')
-    setDispositionPerson('')
-    setDispositionResult('')
+  const openDetail = (alert: AlertRecord) => {
+    const fresh = alerts.find((a) => a.id === alert.id) || alert
+    setSelectedAlert(fresh)
+    setProcessingNote(fresh.processingNote || '')
+    setProcessingBy(fresh.processingBy || '')
+    setResolvedResult(fresh.resolvedResult || '')
+    setResolvedNote(fresh.resolvedNote || '')
+    setResolvedBy(fresh.resolvedBy || '')
+    if (fresh.processingNote) {
+      setDetailStep('closing')
+    } else {
+      setDetailStep('processing')
+    }
   }
 
-  const handleSubmitDisposition = () => {
-    if (!selectedAlert) return
-    const fullDisposition = `${dispositionText} (处置人: ${dispositionPerson}, 结果: ${dispositionResult})`
+  const closeDetail = () => {
+    setSelectedAlert(null)
+    setProcessingNote('')
+    setProcessingBy('')
+    setResolvedResult('')
+    setResolvedNote('')
+    setResolvedBy('')
+  }
+
+  const handleConfirmAlert = () => {
+    if (!confirmModalAlert || !confirmName.trim()) return
+    updateAlert(confirmModalAlert.id, {
+      status: 'processing',
+      confirmedAt: new Date().toISOString(),
+      confirmedBy: confirmName.trim(),
+    })
+    setConfirmModalAlert(null)
+    setConfirmName('')
+  }
+
+  const handleSubmitProcessing = () => {
+    if (!selectedAlert || !processingNote.trim() || !processingBy.trim()) return
+    updateAlert(selectedAlert.id, {
+      processingNote: processingNote.trim(),
+      processingBy: processingBy.trim(),
+      processingAt: new Date().toISOString(),
+    })
+    const fresh = alerts.find((a) => a.id === selectedAlert.id)
+    if (fresh) {
+      setSelectedAlert({ ...fresh, processingNote: processingNote.trim(), processingBy: processingBy.trim(), processingAt: new Date().toISOString() })
+    }
+    setDetailStep('closing')
+  }
+
+  const handleCloseAlert = () => {
+    if (!selectedAlert || !resolvedResult || !resolvedBy.trim()) return
     updateAlert(selectedAlert.id, {
       status: 'resolved',
+      resolvedResult,
+      resolvedNote: resolvedNote.trim(),
+      resolvedBy: resolvedBy.trim(),
       resolvedAt: new Date().toISOString(),
-      disposition: fullDisposition,
     })
-    setSelectedAlert(null)
-    setDispositionText('')
-    setDispositionPerson('')
-    setDispositionResult('')
-  }
-
-  const handleProcessAlert = (alert: AlertRecord) => {
-    updateAlert(alert.id, { status: 'processing' })
+    closeDetail()
   }
 
   const handleSaveThresholds = () => {
@@ -213,10 +258,20 @@ export default function AlertsPage() {
                       </td>
                       <td className="py-2.5 px-3 text-center">
                         {alert.status === 'pending' && (
-                          <button onClick={() => handleProcessAlert(alert)} className="text-xs text-spring-400 hover:text-spring-300 transition-colors">处置</button>
+                          <button
+                            onClick={() => {
+                              setConfirmModalAlert(alert)
+                              setConfirmName('')
+                            }}
+                            className="text-xs text-spring-400 hover:text-spring-300 transition-colors"
+                          >
+                            处置
+                          </button>
                         )}
                         {(alert.status === 'processing' || alert.status === 'resolved') && (
-                          <button onClick={() => handleStartDisposition(alert)} className="text-xs text-white/50 hover:text-white transition-colors">查看</button>
+                          <button onClick={() => openDetail(alert)} className="text-xs text-white/50 hover:text-white transition-colors">
+                            查看
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -320,133 +375,258 @@ export default function AlertsPage() {
         </GlassCard>
       </div>
 
-      {selectedAlert && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setSelectedAlert(null)}>
-          <div className="w-full max-w-lg rounded-xl bg-surface-50 border border-white/10 p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-white">告警详情</h2>
-              <button onClick={() => setSelectedAlert(null)} className="text-white/50 hover:text-white"><X className="w-5 h-5" /></button>
+      {confirmModalAlert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => { setConfirmModalAlert(null); setConfirmName('') }}>
+          <div className="w-full max-w-sm rounded-xl bg-surface-50 border border-white/10 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-bold text-white">确认告警</h2>
+              <button onClick={() => { setConfirmModalAlert(null); setConfirmName('') }} className="text-white/50 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
-
-            <div className="space-y-3 mb-6">
-              <div className="flex items-center gap-2">
-                <StatusBadge level={LEVEL_BADGE[selectedAlert.level]?.level || 'info'} label={LEVEL_BADGE[selectedAlert.level]?.label || ''} />
-                <StatusBadge level={STATUS_BADGE[selectedAlert.status]?.level || 'info'} label={STATUS_BADGE[selectedAlert.status]?.label || ''} />
+            <div className="rounded-lg bg-surface-100 p-3 mb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <StatusBadge level={LEVEL_BADGE[confirmModalAlert.level]?.level || 'info'} label={LEVEL_BADGE[confirmModalAlert.level]?.label || ''} />
+                <span className="text-white font-medium text-sm">{confirmModalAlert.pointName}</span>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-surface-100 p-3">
-                  <p className="text-xs text-white/40">监测点</p>
-                  <p className="text-white font-medium">{selectedAlert.pointName}</p>
-                </div>
-                <div className="rounded-lg bg-surface-100 p-3">
-                  <p className="text-xs text-white/40">指标</p>
-                  <p className="text-white font-medium">{INDICATOR_LABELS[selectedAlert.indicator] || selectedAlert.indicator}</p>
-                </div>
-                <div className="rounded-lg bg-surface-100 p-3">
-                  <p className="text-xs text-white/40">当前值</p>
-                  <p className="text-data-red font-bold font-mono">{selectedAlert.value}</p>
-                </div>
-                <div className="rounded-lg bg-surface-100 p-3">
-                  <p className="text-xs text-white/40">阈值</p>
-                  <p className="text-white font-mono">{selectedAlert.threshold}</p>
-                </div>
-              </div>
-              <div className="rounded-lg bg-surface-100 p-3">
-                <p className="text-xs text-white/40">描述</p>
-                <p className="text-white/70 text-sm">{selectedAlert.description}</p>
+              <p className="text-xs text-white/50">{INDICATOR_LABELS[confirmModalAlert.indicator] || confirmModalAlert.indicator} · 当前值 {confirmModalAlert.value} · 阈值 {confirmModalAlert.threshold}</p>
+            </div>
+            <div className="mb-5">
+              <label className="block text-sm text-white/70 mb-2">确认人姓名</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+                <input
+                  value={confirmName}
+                  onChange={(e) => setConfirmName(e.target.value)}
+                  placeholder="请输入确认人姓名"
+                  className="w-full rounded-lg bg-surface-100 border border-white/10 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-spring-500"
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmAlert() }}
+                />
               </div>
             </div>
-
-            <div className="border-t border-white/10 pt-4">
-              <h3 className="text-white font-medium mb-4">处置流程</h3>
-              <div className="space-y-4">
-                <div className="flex gap-3">
-                  <div className="flex flex-col items-center">
-                    <div className="w-6 h-6 rounded-full bg-data-green flex items-center justify-center">
-                      <CheckCircle className="w-3.5 h-3.5 text-white" />
-                    </div>
-                    <div className="w-px flex-1 bg-white/10" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-white font-medium">确认告警</p>
-                    <p className="text-xs text-white/40">{new Date(selectedAlert.createdAt).toLocaleString('zh-CN')}</p>
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <div className="flex flex-col items-center">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${selectedAlert.status !== 'pending' ? 'bg-data-green' : 'bg-surface-300'}`}>
-                      {selectedAlert.status !== 'pending' ? <CheckCircle className="w-3.5 h-3.5 text-white" /> : <Clock className="w-3.5 h-3.5 text-white/40" />}
-                    </div>
-                    <div className="w-px flex-1 bg-white/10" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm text-white font-medium">处置过程</p>
-                    {selectedAlert.status === 'resolved' && selectedAlert.disposition ? (
-                      <p className="text-xs text-white/50 mt-1">{selectedAlert.disposition}</p>
-                    ) : selectedAlert.status !== 'pending' ? (
-                      <div className="mt-2 space-y-2">
-                        <textarea
-                          value={dispositionText}
-                          onChange={(e) => setDispositionText(e.target.value)}
-                          placeholder="请描述处置过程..."
-                          rows={2}
-                          className="w-full rounded-lg bg-surface-100 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-spring-500 resize-none"
-                        />
-                        <input
-                          value={dispositionPerson}
-                          onChange={(e) => setDispositionPerson(e.target.value)}
-                          placeholder="处置人"
-                          className="w-full rounded-lg bg-surface-100 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-spring-500"
-                        />
-                      </div>
-                    ) : (
-                      <p className="text-xs text-white/30 mt-1">等待确认后开始处置</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <div className="flex flex-col items-center">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${selectedAlert.status === 'resolved' ? 'bg-data-green' : 'bg-surface-300'}`}>
-                      {selectedAlert.status === 'resolved' ? <CheckCircle className="w-3.5 h-3.5 text-white" /> : <Clock className="w-3.5 h-3.5 text-white/40" />}
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm text-white font-medium">处置结果</p>
-                    {selectedAlert.status === 'resolved' ? (
-                      <p className="text-xs text-data-green mt-1">已解决</p>
-                    ) : selectedAlert.status === 'processing' ? (
-                      <div className="mt-2 space-y-2">
-                        <select
-                          value={dispositionResult}
-                          onChange={(e) => setDispositionResult(e.target.value)}
-                          className="w-full rounded-lg bg-surface-100 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-spring-500"
-                        >
-                          <option value="">选择处置结果</option>
-                          <option value="已恢复">已恢复</option>
-                          <option value="需持续关注">需持续关注</option>
-                          <option value="升级处理">升级处理</option>
-                        </select>
-                        {dispositionText && dispositionPerson && dispositionResult && (
-                          <button
-                            onClick={handleSubmitDisposition}
-                            className="w-full rounded-lg bg-spring-700 px-4 py-2 text-sm font-medium text-white hover:bg-spring-800 transition-colors"
-                          >
-                            确认关闭
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-white/30 mt-1">等待处置</p>
-                    )}
-                  </div>
-                </div>
-              </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setConfirmModalAlert(null); setConfirmName('') }}
+                className="flex-1 rounded-lg bg-surface-200 px-4 py-2.5 text-sm font-medium text-white/60 hover:text-white transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmAlert}
+                disabled={!confirmName.trim()}
+                className="flex-1 rounded-lg bg-spring-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-spring-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                确认告警
+              </button>
             </div>
           </div>
         </div>
       )}
+
+      {selectedAlert && (() => {
+        const current = alerts.find((a) => a.id === selectedAlert.id) || selectedAlert
+        const isResolved = current.status === 'resolved'
+        const isProcessing = current.status === 'processing'
+        const hasProcessingInfo = !!current.processingAt
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closeDetail}>
+            <div className="w-full max-w-lg rounded-xl bg-surface-50 border border-white/10 p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-white">告警详情</h2>
+                <button onClick={closeDetail} className="text-white/50 hover:text-white"><X className="w-5 h-5" /></button>
+              </div>
+
+              <div className="space-y-3 mb-6">
+                <div className="flex items-center gap-2">
+                  <StatusBadge level={LEVEL_BADGE[current.level]?.level || 'info'} label={LEVEL_BADGE[current.level]?.label || ''} />
+                  <StatusBadge level={STATUS_BADGE[current.status]?.level || 'info'} label={STATUS_BADGE[current.status]?.label || ''} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg bg-surface-100 p-3">
+                    <p className="text-xs text-white/40">监测点</p>
+                    <p className="text-white font-medium">{current.pointName}</p>
+                  </div>
+                  <div className="rounded-lg bg-surface-100 p-3">
+                    <p className="text-xs text-white/40">指标</p>
+                    <p className="text-white font-medium">{INDICATOR_LABELS[current.indicator] || current.indicator}</p>
+                  </div>
+                  <div className="rounded-lg bg-surface-100 p-3">
+                    <p className="text-xs text-white/40">当前值</p>
+                    <p className="text-data-red font-bold font-mono">{current.value}</p>
+                  </div>
+                  <div className="rounded-lg bg-surface-100 p-3">
+                    <p className="text-xs text-white/40">阈值</p>
+                    <p className="text-white font-mono">{current.threshold}</p>
+                  </div>
+                </div>
+                <div className="rounded-lg bg-surface-100 p-3">
+                  <p className="text-xs text-white/40">描述</p>
+                  <p className="text-white/70 text-sm">{current.description}</p>
+                </div>
+              </div>
+
+              <div className="border-t border-white/10 pt-4">
+                <h3 className="text-white font-medium mb-4">处置流程</h3>
+                <div className="space-y-0">
+
+                  <div className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <div className="w-7 h-7 rounded-full bg-data-green flex items-center justify-center shrink-0">
+                        <CheckCircle className="w-4 h-4 text-white" />
+                      </div>
+                      <div className="w-px flex-1 bg-white/10 min-h-[24px]" />
+                    </div>
+                    <div className="pb-5">
+                      <p className="text-sm text-white font-medium">确认告警</p>
+                      {current.confirmedAt && (
+                        <div className="mt-1.5 rounded-lg bg-surface-100 p-2.5 text-xs space-y-1">
+                          <div className="flex items-center gap-1.5 text-white/50">
+                            <Clock className="w-3 h-3" />
+                            {new Date(current.confirmedAt).toLocaleString('zh-CN')}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-white/50">
+                            <User className="w-3 h-3" />
+                            {current.confirmedBy}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${hasProcessingInfo ? 'bg-data-green' : isProcessing ? 'bg-spring-600 animate-pulse' : 'bg-surface-300'}`}>
+                        {hasProcessingInfo ? <CheckCircle className="w-4 h-4 text-white" /> : <FileText className="w-4 h-4 text-white/40" />}
+                      </div>
+                      <div className="w-px flex-1 bg-white/10 min-h-[24px]" />
+                    </div>
+                    <div className="pb-5 flex-1">
+                      <p className="text-sm text-white font-medium">处置过程</p>
+                      {hasProcessingInfo ? (
+                        <div className="mt-1.5 rounded-lg bg-surface-100 p-2.5 text-xs space-y-1">
+                          <div className="flex items-center gap-1.5 text-white/50">
+                            <Clock className="w-3 h-3" />
+                            {current.processingAt && new Date(current.processingAt).toLocaleString('zh-CN')}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-white/50">
+                            <User className="w-3 h-3" />
+                            {current.processingBy}
+                          </div>
+                          <div className="flex items-start gap-1.5 text-white/70">
+                            <FileText className="w-3 h-3 mt-0.5 shrink-0" />
+                            {current.processingNote}
+                          </div>
+                        </div>
+                      ) : isProcessing && detailStep === 'processing' ? (
+                        <div className="mt-2 space-y-2">
+                          <textarea
+                            value={processingNote}
+                            onChange={(e) => setProcessingNote(e.target.value)}
+                            placeholder="请描述处置过程..."
+                            rows={3}
+                            className="w-full rounded-lg bg-surface-100 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-spring-500 resize-none"
+                          />
+                          <div className="relative">
+                            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+                            <input
+                              value={processingBy}
+                              onChange={(e) => setProcessingBy(e.target.value)}
+                              placeholder="处置人"
+                              className="w-full rounded-lg bg-surface-100 border border-white/10 pl-9 pr-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-spring-500"
+                            />
+                          </div>
+                          <button
+                            onClick={handleSubmitProcessing}
+                            disabled={!processingNote.trim() || !processingBy.trim()}
+                            className="w-full rounded-lg bg-spring-700 px-4 py-2 text-sm font-medium text-white hover:bg-spring-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            提交处置
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-white/30 mt-1">等待确认后开始处置</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${isResolved ? 'bg-data-green' : hasProcessingInfo ? 'bg-spring-600 animate-pulse' : 'bg-surface-300'}`}>
+                        {isResolved ? <CheckCircle className="w-4 h-4 text-white" /> : <ChevronRight className="w-4 h-4 text-white/40" />}
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm text-white font-medium">关闭告警</p>
+                      {isResolved ? (
+                        <div className="mt-1.5 rounded-lg bg-surface-100 p-2.5 text-xs space-y-1">
+                          <div className="flex items-center gap-1.5 text-white/50">
+                            <Clock className="w-3 h-3" />
+                            {current.resolvedAt && new Date(current.resolvedAt).toLocaleString('zh-CN')}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-white/50">
+                            <User className="w-3 h-3" />
+                            {current.resolvedBy}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-white/40">处置结果:</span>
+                            <span className={`font-medium ${current.resolvedResult === '已恢复' ? 'text-data-green' : current.resolvedResult === '升级处理' ? 'text-data-red' : 'text-data-amber'}`}>
+                              {current.resolvedResult}
+                            </span>
+                          </div>
+                          {current.resolvedNote && (
+                            <div className="flex items-start gap-1.5 text-white/70">
+                              <FileText className="w-3 h-3 mt-0.5 shrink-0" />
+                              {current.resolvedNote}
+                            </div>
+                          )}
+                        </div>
+                      ) : hasProcessingInfo && detailStep === 'closing' ? (
+                        <div className="mt-2 space-y-2">
+                          <select
+                            value={resolvedResult}
+                            onChange={(e) => setResolvedResult(e.target.value)}
+                            className="w-full rounded-lg bg-surface-100 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-spring-500"
+                          >
+                            <option value="">选择处置结果</option>
+                            <option value="已恢复">已恢复</option>
+                            <option value="需持续关注">需持续关注</option>
+                            <option value="升级处理">升级处理</option>
+                          </select>
+                          <textarea
+                            value={resolvedNote}
+                            onChange={(e) => setResolvedNote(e.target.value)}
+                            placeholder="备注（可选）"
+                            rows={2}
+                            className="w-full rounded-lg bg-surface-100 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-spring-500 resize-none"
+                          />
+                          <div className="relative">
+                            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+                            <input
+                              value={resolvedBy}
+                              onChange={(e) => setResolvedBy(e.target.value)}
+                              placeholder="确认人"
+                              className="w-full rounded-lg bg-surface-100 border border-white/10 pl-9 pr-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-spring-500"
+                            />
+                          </div>
+                          <button
+                            onClick={handleCloseAlert}
+                            disabled={!resolvedResult || !resolvedBy.trim()}
+                            className="w-full rounded-lg bg-spring-700 px-4 py-2 text-sm font-medium text-white hover:bg-spring-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            确认关闭
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-white/30 mt-1">等待处置完成</p>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

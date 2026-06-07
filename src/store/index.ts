@@ -32,6 +32,7 @@ interface StoreState {
   addSamplingTask: (task: SamplingTask) => void
   updateSamplingTask: (id: string, updates: Partial<SamplingTask>) => void
   addPatrolRecord: (record: PatrolRecord) => void
+  updatePatrolRecord: (id: string, updates: Partial<PatrolRecord>) => void
   updateAlert: (id: string, updates: Partial<AlertRecord>) => void
   updateThreshold: (indicator: string, updates: Partial<ThresholdConfig>) => void
   addAlert: (alert: AlertRecord) => void
@@ -57,6 +58,13 @@ export const useStore = create<StoreState>((set) => ({
 
   addPatrolRecord: (record) =>
     set((state) => ({ patrolRecords: [...state.patrolRecords, record] })),
+
+  updatePatrolRecord: (id, updates) =>
+    set((state) => ({
+      patrolRecords: state.patrolRecords.map((r) =>
+        r.id === id ? { ...r, ...updates } : r
+      ),
+    })),
 
   updateAlert: (id, updates) =>
     set((state) => ({

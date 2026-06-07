@@ -12,8 +12,12 @@ import {
   User,
   ChevronDown,
   X,
+  CheckCircle2,
+  Clock,
+  Hourglass,
+  SendHorizonal,
 } from 'lucide-react';
-import type { PatrolRecord } from '@/types';
+import type { PatrolRecord, SamplingTask } from '@/types';
 import { useStore } from '@/store';
 import GlassCard from '@/components/GlassCard';
 
@@ -28,8 +32,23 @@ const PHOTO_GRADIENTS = [
   'linear-gradient(135deg, #a18cd1, #fbc2eb)',
 ];
 
+interface RecheckModalState {
+  open: boolean;
+  recordId: string;
+  assignee: string;
+  notes: string;
+  submitted: boolean;
+}
+
 export default function PatrolPage() {
-  const { patrolRecords, monitoringPoints, addPatrolRecord } = useStore();
+  const {
+    patrolRecords,
+    monitoringPoints,
+    samplingTasks,
+    addPatrolRecord,
+    addSamplingTask,
+    updatePatrolRecord,
+  } = useStore();
 
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedPoint, setSelectedPoint] = useState('');
@@ -45,6 +64,14 @@ export default function PatrolPage() {
   const [filterPoint, setFilterPoint] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const [recheckModal, setRecheckModal] = useState<RecheckModalState>({
+    open: false,
+    recordId: '',
+    assignee: '',
+    notes: '',
+    submitted: false,
+  });
 
   const toggleTag = (tag: string) => {
     setSelectedTags(prev =>
@@ -80,6 +107,55 @@ export default function PatrolPage() {
     setIssues('');
     setSelectedTags([]);
     setPhotos([]);
+  };
+
+  const openRecheckModal = (recordId: string) => {
+    setRecheckModal({
+      open: true,
+      recordId,
+      assignee: '',
+      notes: '',
+      submitted: false,
+    });
+  };
+
+  const closeRecheckModal = () => {
+    setRecheckModal(prev => ({ ...prev, open: false }));
+  };
+
+  const submitRecheck = () => {
+    if (!recheckModal.assignee.trim()) return;
+
+    const record = patrolRecords.find(r => r.id === recheckModal.recordId);
+    if (!record) return;
+
+    const taskId = `task-recheck-${Date.now()}`;
+    const newTask: SamplingTask = {
+      id: taskId,
+      pointId: record.pointId,
+      pointName: record.pointName,
+      assignee: recheckModal.assignee.trim(),
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      type: 'recheck',
+      indicators: [],
+      notes: recheckModal.notes.trim(),
+    };
+
+    addSamplingTask(newTask);
+    updatePatrolRecord(record.id, { recheckTaskId: taskId });
+    setRecheckModal(prev => ({ ...prev, submitted: true }));
+
+    setTimeout(() => {
+      closeRecheckModal();
+    }, 1500);
+  };
+
+  const getRecheckStatus = (record: PatrolRecord) => {
+    if (!record.recheckTaskId) return null;
+    const task = samplingTasks.find(t => t.id === record.recheckTaskId);
+    if (!task) return null;
+    return task;
   };
 
   const filteredRecords = patrolRecords.filter(record => {
@@ -353,6 +429,128 @@ export default function PatrolPage() {
     </div>
   );
 
+  const renderRecheckBadge = (record: PatrolRecord) => {
+    const task = getRecheckStatus(record);
+    if (!task) return null;
+
+    if (task.status === 'completed') {
+      return (
+        <div className="flex items-center gap-2 mt-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 text-green-400 border border-green-500/30 px-2.5 py-0.5 text-xs font-medium">
+            <CheckCircle2 className="w-3 h-3" />
+            已复检
+          </span>
+          {task.completedAt && (
+            <span className="text-xs text-white/40">
+              {new Date(task.completedAt).toLocaleString('zh-CN')}
+            </span>
+          )}
+          {record.recheckResult && (
+            <span className="text-xs text-white/50">{record.recheckResult}</span>
+          )}
+        </div>
+      );
+    }
+
+    if (task.status === 'in_progress') {
+      return (
+        <div className="flex items-center gap-2 mt-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 px-2.5 py-0.5 text-xs font-medium">
+            <Clock className="w-3 h-3" />
+            复检中
+          </span>
+          <span className="text-xs text-white/40">复检人: {task.assignee}</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex items-center gap-2 mt-2">
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2.5 py-0.5 text-xs font-medium">
+          <Hourglass className="w-3 h-3" />
+          待复检
+        </span>
+        <span className="text-xs text-white/40">复检人: {task.assignee}</span>
+      </div>
+    );
+  };
+
+  const renderRecheckModal = () => {
+    if (!recheckModal.open) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          onClick={closeRecheckModal}
+        />
+        <div className="relative bg-gray-900/95 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
+          {recheckModal.submitted ? (
+            <div className="flex flex-col items-center py-6">
+              <CheckCircle2 className="w-10 h-10 text-green-400 mb-3" />
+              <p className="text-white/80 text-sm">复检任务已派发成功</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-base font-semibold text-white/90">派发复检任务</h3>
+                <button
+                  type="button"
+                  onClick={closeRecheckModal}
+                  className="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+                >
+                  <X className="w-4 h-4 text-white/50" />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm text-white/60 mb-1">复检人</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                    <input
+                      type="text"
+                      value={recheckModal.assignee}
+                      onChange={e =>
+                        setRecheckModal(prev => ({ ...prev, assignee: e.target.value }))
+                      }
+                      placeholder="请输入复检人姓名"
+                      className="w-full bg-white/5 border border-white/10 rounded-lg pl-10 pr-4 py-2.5 text-white placeholder-white/30 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm text-white/60 mb-1">复检说明</label>
+                  <textarea
+                    value={recheckModal.notes}
+                    onChange={e =>
+                      setRecheckModal(prev => ({ ...prev, notes: e.target.value }))
+                    }
+                    placeholder="请输入复检说明..."
+                    rows={3}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white placeholder-white/30 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 resize-none"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={submitRecheck}
+                  disabled={!recheckModal.assignee.trim()}
+                  className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    recheckModal.assignee.trim()
+                      ? 'bg-blue-500 text-white hover:bg-blue-600 shadow-lg shadow-blue-500/25'
+                      : 'bg-white/5 text-white/20 cursor-not-allowed'
+                  }`}
+                >
+                  <SendHorizonal className="w-4 h-4" />
+                  派发复检
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderTimeline = () => {
     if (filteredRecords.length === 0) {
       return (
@@ -369,6 +567,7 @@ export default function PatrolPage() {
         {filteredRecords.map((record, index) => {
           const isLeft = index % 2 === 0;
           const isExpanded = expandedId === record.id;
+          const hasIssues = record.issues && record.issues.trim() !== '' && record.issues.trim() !== '无';
           return (
             <div key={record.id} className="relative mb-8">
               <div className="absolute left-1/2 top-4 w-3 h-3 rounded-full bg-blue-500 border-2 border-blue-300 -translate-x-1/2 z-10" />
@@ -395,7 +594,7 @@ export default function PatrolPage() {
                     <p className={`text-xs text-white/50 ${isExpanded ? '' : 'line-clamp-2'}`}>
                       {record.content}
                     </p>
-                    {record.issues && record.issues !== '无' && (
+                    {hasIssues && (
                       <div className="mt-2 flex items-start gap-1">
                         <span className="text-xs text-amber-400/80">⚠</span>
                         <p className={`text-xs text-amber-400/80 ${isExpanded ? '' : 'line-clamp-1'}`}>
@@ -411,6 +610,20 @@ export default function PatrolPage() {
                           </span>
                         ))}
                       </div>
+                    )}
+                    {isExpanded && renderRecheckBadge(record)}
+                    {isExpanded && hasIssues && !record.recheckTaskId && (
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation();
+                          openRecheckModal(record.id);
+                        }}
+                        className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 transition-colors"
+                      >
+                        <SendHorizonal className="w-3.5 h-3.5" />
+                        派发复检
+                      </button>
                     )}
                     {record.photos && record.photos.length > 0 && (
                       <div className="flex gap-2 mt-3">
@@ -455,6 +668,7 @@ export default function PatrolPage() {
         {renderFilterBar()}
         {renderTimeline()}
       </GlassCard>
+      {renderRecheckModal()}
     </div>
   );
 }

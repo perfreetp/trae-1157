@@ -10,7 +10,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from 'recharts'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Inbox, ArrowRightLeft } from 'lucide-react'
 import type { WaterQualityRecord, ThresholdConfig } from '@/types'
 import { useStore } from '@/store'
 import GlassCard from '@/components/GlassCard'
@@ -24,15 +24,15 @@ const TIME_RANGES = [
   { label: '7d', ms: 7 * 24 * 3600000 },
 ] as const
 
-const INDICATORS = [
-  { key: 'flow' as const, label: '流量', unit: 'm³/h', color: '#06B6D4' },
-  { key: 'temperature' as const, label: '水温', unit: '°C', color: '#F59E0B' },
-  { key: 'turbidity' as const, label: '浊度', unit: 'NTU', color: '#EF4444' },
-  { key: 'pH' as const, label: '酸碱度', unit: 'pH', color: '#22C55E' },
-  { key: 'residualChlorine' as const, label: '余氯', unit: 'mg/L', color: '#3B82F6' },
-]
-
 type IndicatorKey = 'flow' | 'temperature' | 'turbidity' | 'pH' | 'residualChlorine'
+
+const INDICATORS: { key: IndicatorKey; label: string; unit: string; color: string }[] = [
+  { key: 'flow', label: '流量', unit: 'm³/h', color: '#06B6D4' },
+  { key: 'temperature', label: '水温', unit: '°C', color: '#F59E0B' },
+  { key: 'turbidity', label: '浊度', unit: 'NTU', color: '#EF4444' },
+  { key: 'pH', label: '酸碱度', unit: 'pH', color: '#22C55E' },
+  { key: 'residualChlorine', label: '余氯', unit: 'mg/L', color: '#3B82F6' },
+]
 
 function formatTime(iso: string): string {
   const d = new Date(iso)
@@ -169,12 +169,17 @@ export default function DetailPage() {
 
   const latestRecord = filteredRecords.length > 0 ? filteredRecords[filteredRecords.length - 1] : null
 
+  const lastReportDisplay = useMemo(() => {
+    if (filteredRecords.length === 0) return null
+    return new Date(latestRecord!.timestamp).toLocaleString('zh-CN')
+  }, [filteredRecords, latestRecord])
+
   const chartDataMap = useMemo(() => {
     const map: Record<string, { time: string; value: number }[]> = {}
     for (const ind of INDICATORS) {
       map[ind.key] = filteredRecords.map((r) => ({
         time: formatTime(r.timestamp),
-        value: r[ind.key as IndicatorKey] as number,
+        value: r[ind.key] as number,
       }))
     }
     return map
@@ -195,6 +200,8 @@ export default function DetailPage() {
   function isRecordAbnormal(record: WaterQualityRecord): boolean {
     return INDICATORS.some((ind) => isExceeded(ind.key, record[ind.key as IndicatorKey] as number, thresholds))
   }
+
+  const isEmpty = filteredRecords.length === 0
 
   return (
     <div className="space-y-6">
@@ -218,7 +225,10 @@ export default function DetailPage() {
                       onClick={() => handlePointChange(p.id)}
                       className={`w-full px-4 py-2 text-left text-sm hover:bg-surface-300 transition-colors ${p.id === selectedPoint?.id ? 'text-spring-400' : 'text-white'}`}
                     >
-                      {p.name} - {p.area}
+                      <span className="flex items-center justify-between">
+                        <span>{p.name} - {p.area}</span>
+                        <StatusBadge level={STATUS_MAP[p.status]?.level || 'online'} label={STATUS_MAP[p.status]?.label || '在线'} />
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -242,74 +252,128 @@ export default function DetailPage() {
             <span className="text-white font-medium">{selectedPoint.name}</span>
             <StatusBadge level={STATUS_MAP[selectedPoint.status]?.level || 'online'} label={STATUS_MAP[selectedPoint.status]?.label || '在线'} />
             <span className="text-white/40">{selectedPoint.area}</span>
-            <span className="text-white/40">最近上报: {new Date(selectedPoint.lastReport).toLocaleString('zh-CN')}</span>
+            <span className="text-white/40">
+              最近上报: {lastReportDisplay ?? '当前时间范围内无数据'}
+            </span>
           </div>
         )}
       </GlassCard>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {INDICATORS.map((ind, idx) => (
-          <div key={ind.key} className={idx === INDICATORS.length - 1 ? 'md:col-span-2' : undefined}>
-            <IndicatorChart
-              indicator={ind}
-              data={chartDataMap[ind.key]}
-              currentValue={latestRecord ? (latestRecord[ind.key as IndicatorKey] as number) : null}
-              thresholds={thresholds}
-            />
+      {isEmpty ? (
+        <GlassCard>
+          <div className="flex flex-col items-center justify-center py-16">
+            <Inbox className="h-16 w-16 text-white/10 mb-4" />
+            <p className="text-white/60 text-lg font-medium mb-2">当前时间范围内无监测数据</p>
+            <p className="text-white/30 text-sm mb-6">请尝试切换时间范围或选择其他监测点</p>
+            <div className="flex gap-2 mb-6">
+              {TIME_RANGES.map((tr) => (
+                <button
+                  key={tr.label}
+                  onClick={() => { setTimeRange(tr.label); setPage(1) }}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${timeRange === tr.label ? 'bg-spring-600 text-white' : 'bg-surface-50 text-white/40 hover:text-white hover:bg-surface-300'}`}
+                >
+                  {tr.label}
+                </button>
+              ))}
+            </div>
+            <div className="relative">
+              <button
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                className="flex items-center gap-2 rounded-lg bg-surface-50 px-4 py-2 text-white/60 hover:bg-surface-300 hover:text-white transition-colors"
+              >
+                <ArrowRightLeft className="h-4 w-4" />
+                <span>切换监测点</span>
+                <ChevronDown className={`h-4 w-4 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {dropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
+                  <div className="absolute z-50 mt-1 w-64 rounded-lg border border-white/10 bg-surface-100 py-1 shadow-xl">
+                    {monitoringPoints.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => handlePointChange(p.id)}
+                        className={`w-full px-4 py-2 text-left text-sm hover:bg-surface-300 transition-colors ${p.id === selectedPoint?.id ? 'text-spring-400' : 'text-white'}`}
+                      >
+                        <span className="flex items-center justify-between">
+                          <span>{p.name} - {p.area}</span>
+                          <StatusBadge level={STATUS_MAP[p.status]?.level || 'online'} label={STATUS_MAP[p.status]?.label || '在线'} />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-        ))}
-      </div>
+        </GlassCard>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {INDICATORS.map((ind, idx) => (
+              <div key={ind.key} className={idx === INDICATORS.length - 1 ? 'md:col-span-2' : undefined}>
+                <IndicatorChart
+                  indicator={ind}
+                  data={chartDataMap[ind.key]}
+                  currentValue={latestRecord ? (latestRecord[ind.key as IndicatorKey] as number) : null}
+                  thresholds={thresholds}
+                />
+              </div>
+            ))}
+          </div>
 
-      <GlassCard title="监测数据记录">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-white/10">
-                <th className="py-2 px-3 text-left text-white/40 font-medium">时间</th>
-                <th className="py-2 px-3 text-right text-white/40 font-medium">流量(m³/h)</th>
-                <th className="py-2 px-3 text-right text-white/40 font-medium">水温(°C)</th>
-                <th className="py-2 px-3 text-right text-white/40 font-medium">浊度(NTU)</th>
-                <th className="py-2 px-3 text-right text-white/40 font-medium">pH</th>
-                <th className="py-2 px-3 text-right text-white/40 font-medium">余氯(mg/L)</th>
-                <th className="py-2 px-3 text-center text-white/40 font-medium">状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedRecords.map((record, i) => {
-                const abnormal = isRecordAbnormal(record)
-                return (
-                  <tr key={record.timestamp} className={`border-b border-white/5 ${i % 2 === 1 ? 'bg-surface-50/30' : ''}`}>
-                    <td className="py-2 px-3 text-white/50">{formatDateTime(record.timestamp)}</td>
-                    {INDICATORS.map((ind) => {
-                      const val = record[ind.key as IndicatorKey] as number
-                      const exc = isExceeded(ind.key, val, thresholds)
-                      return (
-                        <td key={ind.key} className={`py-2 px-3 text-right font-mono ${exc ? 'text-data-red bg-data-red/10' : 'text-white'}`}>
-                          {val}
-                        </td>
-                      )
-                    })}
-                    <td className="py-2 px-3 text-center">
-                      {abnormal ? (
-                        <span className="rounded-full bg-data-red/20 text-data-red px-2 py-0.5 text-xs font-medium">异常</span>
-                      ) : (
-                        <span className="rounded-full bg-data-green/20 text-data-green px-2 py-0.5 text-xs font-medium">正常</span>
-                      )}
-                    </td>
+          <GlassCard title="监测数据记录">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="py-2 px-3 text-left text-white/40 font-medium">时间</th>
+                    <th className="py-2 px-3 text-right text-white/40 font-medium">流量(m³/h)</th>
+                    <th className="py-2 px-3 text-right text-white/40 font-medium">水温(°C)</th>
+                    <th className="py-2 px-3 text-right text-white/40 font-medium">浊度(NTU)</th>
+                    <th className="py-2 px-3 text-right text-white/40 font-medium">pH</th>
+                    <th className="py-2 px-3 text-right text-white/40 font-medium">余氯(mg/L)</th>
+                    <th className="py-2 px-3 text-center text-white/40 font-medium">状态</th>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-4">
-            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="rounded-lg bg-surface-50 px-3 py-1 text-sm text-white disabled:opacity-30 hover:bg-surface-300 transition-colors">上一页</button>
-            <span className="text-white/40 text-sm">{page} / {totalPages}</span>
-            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="rounded-lg bg-surface-50 px-3 py-1 text-sm text-white disabled:opacity-30 hover:bg-surface-300 transition-colors">下一页</button>
-          </div>
-        )}
-      </GlassCard>
+                </thead>
+                <tbody>
+                  {paginatedRecords.map((record, i) => {
+                    const abnormal = isRecordAbnormal(record)
+                    return (
+                      <tr key={record.timestamp} className={`border-b border-white/5 ${i % 2 === 1 ? 'bg-surface-50/30' : ''}`}>
+                        <td className="py-2 px-3 text-white/50">{formatDateTime(record.timestamp)}</td>
+                        {INDICATORS.map((ind) => {
+                          const val = record[ind.key as IndicatorKey] as number
+                          const exc = isExceeded(ind.key, val, thresholds)
+                          return (
+                            <td key={ind.key} className={`py-2 px-3 text-right font-mono ${exc ? 'text-data-red bg-data-red/10' : 'text-white'}`}>
+                              {val}
+                            </td>
+                          )
+                        })}
+                        <td className="py-2 px-3 text-center">
+                          {abnormal ? (
+                            <span className="rounded-full bg-data-red/20 text-data-red px-2 py-0.5 text-xs font-medium">异常</span>
+                          ) : (
+                            <span className="rounded-full bg-data-green/20 text-data-green px-2 py-0.5 text-xs font-medium">正常</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 mt-4">
+                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="rounded-lg bg-surface-50 px-3 py-1 text-sm text-white disabled:opacity-30 hover:bg-surface-300 transition-colors">上一页</button>
+                <span className="text-white/40 text-sm">{page} / {totalPages}</span>
+                <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="rounded-lg bg-surface-50 px-3 py-1 text-sm text-white disabled:opacity-30 hover:bg-surface-300 transition-colors">下一页</button>
+              </div>
+            )}
+          </GlassCard>
+        </>
+      )}
     </div>
   )
 }
