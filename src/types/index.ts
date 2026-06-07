@@ -17,6 +17,26 @@ export interface WaterQualityRecord {
   residualChlorine: number
 }
 
+export interface HandoverNote {
+  id: string
+  fromPerson: string
+  toPerson: string
+  note: string
+  createdAt: string
+}
+
+export interface DispositionRecord {
+  confirmedAt?: string
+  confirmedBy?: string
+  processingAt?: string
+  processingBy?: string
+  processingNote?: string
+  resolvedAt?: string
+  resolvedBy?: string
+  resolvedResult?: string
+  resolvedNote?: string
+}
+
 export interface AlertRecord {
   id: string
   pointId: string
@@ -38,6 +58,9 @@ export interface AlertRecord {
   resolvedNote?: string
   description: string
   disposition?: string
+  assignedTo?: string
+  handoverNotes?: HandoverNote[]
+  previousDispositions?: DispositionRecord[]
 }
 
 export interface SamplingTask {
@@ -68,6 +91,8 @@ export interface PatrolRecord {
   recheckTaskId?: string
   recheckResult?: string
   recheckResolvedAt?: string
+  recheckPhotos?: string[]
+  recheckValues?: Record<string, number>
 }
 
 export interface ThresholdConfig {
@@ -110,4 +135,18 @@ export interface SummaryStat {
   value: string | number
   suffix?: string
   color?: string
+}
+
+export interface ReportSnapshot {
+  id: string
+  type: ReportType
+  startDate: string
+  endDate: string
+  createdAt: string
+  summaryStats: SummaryStat[]
+  indicatorStats: IndicatorStats[]
+  complianceData: { name: string; rate: number }[]
+  alertTrends: { date: string; critical: number; warning: number; info: number }[]
+  pointScores: { name: string; score: number }[]
+  radarData: { indicator: string; value: number; fullMark: number }[]
 }

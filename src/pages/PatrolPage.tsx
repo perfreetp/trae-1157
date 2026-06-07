@@ -32,6 +32,14 @@ const PHOTO_GRADIENTS = [
   'linear-gradient(135deg, #a18cd1, #fbc2eb)',
 ];
 
+const INDICATOR_LABELS_PATROL: Record<string, string> = {
+  flow: '流量',
+  temperature: '水温',
+  turbidity: '浊度',
+  pH: '酸碱度',
+  residualChlorine: '余氯',
+};
+
 interface RecheckModalState {
   open: boolean;
   recordId: string;
@@ -45,6 +53,7 @@ export default function PatrolPage() {
     patrolRecords,
     monitoringPoints,
     samplingTasks,
+    thresholds,
     addPatrolRecord,
     addSamplingTask,
     updatePatrolRecord,
@@ -435,18 +444,53 @@ export default function PatrolPage() {
 
     if (task.status === 'completed') {
       return (
-        <div className="flex items-center gap-2 mt-2">
-          <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 text-green-400 border border-green-500/30 px-2.5 py-0.5 text-xs font-medium">
-            <CheckCircle2 className="w-3 h-3" />
-            已复检
-          </span>
-          {task.completedAt && (
-            <span className="text-xs text-white/40">
-              {new Date(task.completedAt).toLocaleString('zh-CN')}
+        <div className="mt-2">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 text-green-400 border border-green-500/30 px-2.5 py-0.5 text-xs font-medium">
+              <CheckCircle2 className="w-3 h-3" />
+              已复检
             </span>
-          )}
+            {record.recheckResolvedAt && (
+              <span className="text-xs text-white/40">
+                {new Date(record.recheckResolvedAt).toLocaleString('zh-CN')}
+              </span>
+            )}
+          </div>
           {record.recheckResult && (
-            <span className="text-xs text-white/50">{record.recheckResult}</span>
+            <p className={`text-xs mt-1.5 ${record.recheckResult.includes('超标') ? 'text-data-amber' : 'text-data-green'}`}>
+              {record.recheckResult}
+            </p>
+          )}
+          {record.recheckValues && Object.keys(record.recheckValues).length > 0 && (
+            <div className="mt-2 rounded-lg bg-white/5 p-2.5 space-y-1">
+              <p className="text-xs text-white/40 mb-1">复检检测值</p>
+              {Object.entries(record.recheckValues).map(([key, val]) => {
+                const indicator = INDICATOR_LABELS_PATROL[key]
+                const threshold = thresholds.find((t) => t.indicator === key)
+                const exceeded = threshold && (val < threshold.min || val > threshold.max)
+                return (
+                  <div key={key} className="flex items-center justify-between text-xs">
+                    <span className="text-white/60">{indicator || key}</span>
+                    <span className={`font-mono ${exceeded ? 'text-data-red' : 'text-data-green'}`}>{val}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {record.recheckPhotos && record.recheckPhotos.length > 0 && (
+            <div className="flex gap-2 mt-2">
+              {record.recheckPhotos.map((photo, photoIdx) => (
+                <div
+                  key={photo}
+                  className="w-12 h-12 rounded overflow-hidden"
+                  style={{ background: PHOTO_GRADIENTS[photoIdx % 3] }}
+                >
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Camera className="w-4 h-4 text-white/60" />
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       );

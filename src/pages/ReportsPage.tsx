@@ -24,6 +24,9 @@ import {
   Printer,
   AlertTriangle,
   CheckCircle,
+  History,
+  Eye,
+  X,
 } from 'lucide-react'
 import type {
   WaterQualityRecord,
@@ -34,6 +37,7 @@ import type {
   ReportType,
   IndicatorStats,
   SummaryStat,
+  ReportSnapshot,
 } from '@/types'
 import { useStore } from '@/store'
 import GlassCard from '@/components/GlassCard'
@@ -230,6 +234,157 @@ function buildLedgerCSV(
   return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
 }
 
+function renderReportContent(data: ReportData, reportType: ReportType, startDate: string, endDate: string, onDownloadPDF: () => void) {
+  return (
+    <>
+      <GlassCard>
+        <div className="text-center mb-6">
+          <h2 className="text-xl font-bold text-white">
+            山泉水质监测{reportType === 'daily' ? '日' : '月'}报
+          </h2>
+          <p className="text-sm text-gray-400 mt-1">
+            {startDate} 至 {endDate}
+          </p>
+        </div>
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          {data.summaryStats.map((stat) => (
+            <div
+              key={stat.label}
+              className="rounded-lg bg-surface-200/50 p-4 text-center"
+            >
+              <p className="text-sm text-gray-400">{stat.label}</p>
+              <p
+                className={`text-2xl font-bold font-mono ${stat.color || 'text-white'}`}
+              >
+                {stat.value}
+                {stat.suffix || ''}
+              </p>
+            </div>
+          ))}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="py-3 px-4 text-left text-gray-400 font-medium">
+                  指标
+                </th>
+                <th className="py-3 px-4 text-right text-gray-400 font-medium">
+                  平均值
+                </th>
+                <th className="py-3 px-4 text-right text-gray-400 font-medium">
+                  最大值
+                </th>
+                <th className="py-3 px-4 text-right text-gray-400 font-medium">
+                  最小值
+                </th>
+                <th className="py-3 px-4 text-right text-gray-400 font-medium">
+                  达标率
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.indicatorStats.map((stat) => (
+                <tr
+                  key={stat.name}
+                  className="border-b border-white/5 hover:bg-white/5"
+                >
+                  <td className="py-3 px-4 text-white">
+                    {stat.name} ({stat.unit})
+                  </td>
+                  <td className="py-3 px-4 text-right font-mono text-white">
+                    {stat.avg}
+                  </td>
+                  <td className="py-3 px-4 text-right font-mono text-white">
+                    {stat.max}
+                  </td>
+                  <td className="py-3 px-4 text-right font-mono text-white">
+                    {stat.min}
+                  </td>
+                  <td
+                    className={`py-3 px-4 text-right font-mono ${getComplianceClass(stat.complianceRate)}`}
+                  >
+                    {stat.complianceRate}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex justify-end gap-3 mt-6">
+          <button className="flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors">
+            <Printer className="h-4 w-4" />
+            打印
+          </button>
+          <button
+            onClick={onDownloadPDF}
+            className="flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors"
+          >
+            <Download className="h-4 w-4" />
+            下载PDF
+          </button>
+        </div>
+      </GlassCard>
+
+      <div className="grid grid-cols-2 gap-6">
+        <GlassCard title="指标达标率">
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={data.complianceData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="name" tick={{ fill: '#9CA3AF', fontSize: 12 }} />
+              <YAxis domain={[0, 100]} tick={{ fill: '#9CA3AF', fontSize: 12 }} unit="%" />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#fff' }} />
+              <Bar dataKey="rate" radius={[4, 4, 0, 0]}>
+                {data.complianceData.map((entry, index) => (
+                  <Cell key={index} fill={getBarColor(entry.rate)} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </GlassCard>
+
+        <GlassCard title="告警趋势">
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={data.alertTrends}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 12 }} />
+              <YAxis tick={{ fill: '#9CA3AF', fontSize: 12 }} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#fff' }} />
+              <Legend />
+              <Line type="monotone" dataKey="critical" stroke="#EF4444" name="严重" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="warning" stroke="#F59E0B" name="警告" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="info" stroke="#06B6D4" name="提示" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </GlassCard>
+
+        <GlassCard title="监测点水质评分">
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart layout="vertical" data={data.pointScores}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis type="number" domain={[0, 100]} tick={{ fill: '#9CA3AF', fontSize: 12 }} />
+              <YAxis dataKey="name" type="category" width={70} tick={{ fill: '#9CA3AF', fontSize: 12 }} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#fff' }} />
+              <Bar dataKey="score" fill="#14b8a6" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </GlassCard>
+
+        <GlassCard title="指标分布">
+          <ResponsiveContainer width="100%" height={280}>
+            <RadarChart data={data.radarData}>
+              <PolarGrid stroke="rgba(255,255,255,0.1)" />
+              <PolarAngleAxis dataKey="indicator" tick={{ fill: '#9CA3AF', fontSize: 12 }} />
+              <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: '#9CA3AF', fontSize: 10 }} />
+              <Radar name="达标率" dataKey="value" stroke="#14b8a6" fill="#14b8a6" fillOpacity={0.3} />
+            </RadarChart>
+          </ResponsiveContainer>
+        </GlassCard>
+      </div>
+    </>
+  )
+}
+
 export default function ReportsPage() {
   const navigate = useNavigate()
   const { monitoringPoints, waterQualityRecords, alerts, thresholds } = useStore()
@@ -244,6 +399,13 @@ export default function ReportsPage() {
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
 
+  const [reportHistory, setReportHistory] = useState<ReportSnapshot[]>([])
+  const [historyFilterType, setHistoryFilterType] = useState<string>('')
+  const [historyFilterDateStart, setHistoryFilterDateStart] = useState('')
+  const [historyFilterDateEnd, setHistoryFilterDateEnd] = useState('')
+  const [viewingSnapshot, setViewingSnapshot] = useState<ReportSnapshot | null>(null)
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false)
+
   const stopReportPoints = useMemo(() => {
     const now = Date.now()
     return monitoringPoints
@@ -255,6 +417,15 @@ export default function ReportsPage() {
       .filter((p) => p.hoursSinceReport > 24)
       .sort((a, b) => b.hoursSinceReport - a.hoursSinceReport)
   }, [monitoringPoints])
+
+  const filteredHistory = useMemo(() => {
+    return reportHistory.filter((h) => {
+      if (historyFilterType && h.type !== historyFilterType) return false
+      if (historyFilterDateStart && h.createdAt < historyFilterDateStart) return false
+      if (historyFilterDateEnd && h.createdAt > historyFilterDateEnd + 'T23:59:59') return false
+      return true
+    })
+  }, [reportHistory, historyFilterType, historyFilterDateStart, historyFilterDateEnd])
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg)
@@ -285,7 +456,24 @@ export default function ReportsPage() {
       endDate,
     )
     setReportData(data)
-  }, [waterQualityRecords, monitoringPoints, alerts, thresholds, selectedPoints, selectedIndicators, startDate, endDate])
+
+    const snapshot: ReportSnapshot = {
+      id: `report-${Date.now()}`,
+      type: reportType,
+      startDate,
+      endDate,
+      createdAt: new Date().toISOString(),
+      summaryStats: [...data.summaryStats],
+      indicatorStats: [...data.indicatorStats],
+      complianceData: [...data.complianceData],
+      alertTrends: [...data.alertTrends],
+      pointScores: [...data.pointScores],
+      radarData: [...data.radarData],
+    }
+    setReportHistory((prev) => [snapshot, ...prev])
+    setViewingSnapshot(null)
+    showToast('报表已生成并保存到历史')
+  }, [waterQualityRecords, monitoringPoints, alerts, thresholds, selectedPoints, selectedIndicators, startDate, endDate, reportType, showToast])
 
   const handleExportLedger = useCallback(() => {
     const start = new Date(startDate + 'T00:00:00')
@@ -312,26 +500,30 @@ export default function ReportsPage() {
   }, [startDate, endDate, waterQualityRecords, monitoringPoints, thresholds, selectedPoints, selectedIndicators, reportType, showToast])
 
   const handleDownloadPDF = useCallback(() => {
-    if (!reportData) return
+    const data = viewingSnapshot || reportData
+    if (!data) return
     const lines: string[] = []
+    const sDate = viewingSnapshot ? viewingSnapshot.startDate : startDate
+    const eDate = viewingSnapshot ? viewingSnapshot.endDate : endDate
+    const rType = viewingSnapshot ? viewingSnapshot.type : reportType
     lines.push('山泉水质监测报表')
-    lines.push(`日期范围: ${startDate} 至 ${endDate}`)
+    lines.push(`日期范围: ${sDate} 至 ${eDate}`)
     lines.push('')
     lines.push('--- 概要统计 ---')
-    reportData.summaryStats.forEach((s) => {
+    data.summaryStats.forEach((s) => {
       lines.push(`${s.label}: ${s.value}${s.suffix || ''}`)
     })
     lines.push('')
     lines.push('--- 指标统计 ---')
     lines.push('指标,平均值,最大值,最小值,达标率(%)')
-    reportData.indicatorStats.forEach((s) => {
+    data.indicatorStats.forEach((s) => {
       lines.push(`${s.name}(${s.unit}),${s.avg},${s.max},${s.min},${s.complianceRate}`)
     })
     const csvContent = lines.join('\n')
-    const typeLabel = reportType === 'daily' ? '日报' : '月报'
-    downloadCSV(`水质监测${typeLabel}报表_${startDate}_${endDate}.csv`, csvContent)
+    const typeLabel = rType === 'daily' ? '日报' : '月报'
+    downloadCSV(`水质监测${typeLabel}报表_${sDate}_${eDate}.csv`, csvContent)
     showToast('PDF报表导出成功')
-  }, [reportData, startDate, endDate, reportType, showToast])
+  }, [reportData, viewingSnapshot, startDate, endDate, reportType, showToast])
 
   const handleDownloadExport = useCallback((record: ExportRecord) => {
     const start = new Date(startDate + 'T00:00:00')
@@ -359,6 +551,17 @@ export default function ReportsPage() {
   useEffect(() => {
     handleGenerateReport()
   }, [])
+
+  const currentDisplayData = viewingSnapshot
+    ? {
+        summaryStats: viewingSnapshot.summaryStats,
+        indicatorStats: viewingSnapshot.indicatorStats,
+        complianceData: viewingSnapshot.complianceData,
+        alertTrends: viewingSnapshot.alertTrends,
+        pointScores: viewingSnapshot.pointScores,
+        radarData: viewingSnapshot.radarData,
+      }
+    : reportData
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -414,227 +617,135 @@ export default function ReportsPage() {
             <Download className="h-4 w-4" />
             导出台账
           </button>
+          <button
+            onClick={() => setShowHistoryPanel(!showHistoryPanel)}
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              showHistoryPanel ? 'bg-spring-700 text-white' : 'bg-surface-50 text-white hover:bg-surface-100'
+            }`}
+          >
+            <History className="h-4 w-4" />
+            报表历史 ({reportHistory.length})
+          </button>
         </div>
       </div>
 
-      {reportData && (
-        <>
-          <GlassCard>
-            <div className="text-center mb-6">
-              <h2 className="text-xl font-bold text-white">
-                山泉水质监测{reportType === 'daily' ? '日' : '月'}报
-              </h2>
-              <p className="text-sm text-gray-400 mt-1">
-                {startDate} 至 {endDate}
-              </p>
-            </div>
-            <div className="grid grid-cols-4 gap-4 mb-6">
-              {reportData.summaryStats.map((stat) => (
-                <div
-                  key={stat.label}
-                  className="rounded-lg bg-surface-200/50 p-4 text-center"
+      {viewingSnapshot && (
+        <div className="flex items-center gap-2 rounded-lg bg-spring-700/20 border border-spring-500/30 px-4 py-2">
+          <History className="w-4 h-4 text-spring-400" />
+          <span className="text-sm text-spring-300">
+            正在查看历史报表: {viewingSnapshot.type === 'daily' ? '日报' : '月报'} · {viewingSnapshot.startDate} 至 {viewingSnapshot.endDate} · 生成于 {new Date(viewingSnapshot.createdAt).toLocaleString('zh-CN')}
+          </span>
+          <button
+            onClick={() => setViewingSnapshot(null)}
+            className="ml-auto text-xs text-white/50 hover:text-white transition-colors"
+          >
+            返回当前报表
+          </button>
+        </div>
+      )}
+
+      {showHistoryPanel && (
+        <GlassCard title="报表历史">
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">类型</label>
+                <select
+                  value={historyFilterType}
+                  onChange={(e) => setHistoryFilterType(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-surface-50 px-3 py-1.5 text-sm text-white"
                 >
-                  <p className="text-sm text-gray-400">{stat.label}</p>
-                  <p
-                    className={`text-2xl font-bold font-mono ${stat.color || 'text-white'}`}
-                  >
-                    {stat.value}
-                    {stat.suffix || ''}
-                  </p>
-                </div>
-              ))}
+                  <option value="">全部</option>
+                  <option value="daily">日报</option>
+                  <option value="monthly">月报</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">生成日期起</label>
+                <input
+                  type="date"
+                  value={historyFilterDateStart}
+                  onChange={(e) => setHistoryFilterDateStart(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-surface-50 px-3 py-1.5 text-sm text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">生成日期止</label>
+                <input
+                  type="date"
+                  value={historyFilterDateEnd}
+                  onChange={(e) => setHistoryFilterDateEnd(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-surface-50 px-3 py-1.5 text-sm text-white"
+                />
+              </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="py-3 px-4 text-left text-gray-400 font-medium">
-                      指标
-                    </th>
-                    <th className="py-3 px-4 text-right text-gray-400 font-medium">
-                      平均值
-                    </th>
-                    <th className="py-3 px-4 text-right text-gray-400 font-medium">
-                      最大值
-                    </th>
-                    <th className="py-3 px-4 text-right text-gray-400 font-medium">
-                      最小值
-                    </th>
-                    <th className="py-3 px-4 text-right text-gray-400 font-medium">
-                      达标率
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportData.indicatorStats.map((stat) => (
-                    <tr
-                      key={stat.name}
-                      className="border-b border-white/5 hover:bg-white/5"
-                    >
-                      <td className="py-3 px-4 text-white">
-                        {stat.name} ({stat.unit})
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-white">
-                        {stat.avg}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-white">
-                        {stat.max}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-white">
-                        {stat.min}
-                      </td>
-                      <td
-                        className={`py-3 px-4 text-right font-mono ${getComplianceClass(stat.complianceRate)}`}
-                      >
-                        {stat.complianceRate}%
-                      </td>
+            {filteredHistory.length === 0 ? (
+              <p className="text-center text-gray-500 py-8">暂无历史报表</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="py-3 px-4 text-left text-gray-400 font-medium">类型</th>
+                      <th className="py-3 px-4 text-left text-gray-400 font-medium">日期范围</th>
+                      <th className="py-3 px-4 text-left text-gray-400 font-medium">生成时间</th>
+                      <th className="py-3 px-4 text-left text-gray-400 font-medium">概要</th>
+                      <th className="py-3 px-4 text-center text-gray-400 font-medium">操作</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button className="flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors">
-                <Printer className="h-4 w-4" />
-                打印
-              </button>
-              <button
-                onClick={handleDownloadPDF}
-                className="flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors"
-              >
-                <Download className="h-4 w-4" />
-                下载PDF
-              </button>
-            </div>
-          </GlassCard>
-
-          <div className="grid grid-cols-2 gap-6">
-            <GlassCard title="指标达标率">
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={reportData.complianceData}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(255,255,255,0.05)"
-                  />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                  />
-                  <YAxis
-                    domain={[0, 100]}
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                    unit="%"
-                  />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    labelStyle={{ color: '#fff' }}
-                  />
-                  <Bar dataKey="rate" radius={[4, 4, 0, 0]}>
-                    {reportData.complianceData.map((entry, index) => (
-                      <Cell key={index} fill={getBarColor(entry.rate)} />
+                  </thead>
+                  <tbody>
+                    {filteredHistory.map((snapshot) => (
+                      <tr
+                        key={snapshot.id}
+                        className={`border-b border-white/5 hover:bg-white/5 ${viewingSnapshot?.id === snapshot.id ? 'bg-spring-700/10' : ''}`}
+                      >
+                        <td className="py-3 px-4">
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                            snapshot.type === 'daily' ? 'bg-data-blue/20 text-data-blue' : 'bg-data-amber/20 text-data-amber'
+                          }`}>
+                            {snapshot.type === 'daily' ? '日报' : '月报'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-white text-xs">
+                          {snapshot.startDate} 至 {snapshot.endDate}
+                        </td>
+                        <td className="py-3 px-4 text-white/50 text-xs">
+                          {new Date(snapshot.createdAt).toLocaleString('zh-CN')}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex gap-3 text-xs">
+                            {snapshot.summaryStats.slice(0, 3).map((s) => (
+                              <span key={s.label} className="text-white/50">
+                                {s.label}: <span className={s.color || 'text-white'}>{s.value}{s.suffix || ''}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            onClick={() => setViewingSnapshot(snapshot)}
+                            className="text-spring-500 hover:text-spring-400 text-xs flex items-center gap-1 mx-auto"
+                          >
+                            <Eye className="w-3 h-3" />
+                            查看
+                          </button>
+                        </td>
+                      </tr>
                     ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </GlassCard>
-
-            <GlassCard title="告警趋势">
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={reportData.alertTrends}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(255,255,255,0.05)"
-                  />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                  />
-                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 12 }} />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    labelStyle={{ color: '#fff' }}
-                  />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="critical"
-                    stroke="#EF4444"
-                    name="严重"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="warning"
-                    stroke="#F59E0B"
-                    name="警告"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="info"
-                    stroke="#06B6D4"
-                    name="提示"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </GlassCard>
-
-            <GlassCard title="监测点水质评分">
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart layout="vertical" data={reportData.pointScores}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(255,255,255,0.05)"
-                  />
-                  <XAxis
-                    type="number"
-                    domain={[0, 100]}
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                  />
-                  <YAxis
-                    dataKey="name"
-                    type="category"
-                    width={70}
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                  />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    labelStyle={{ color: '#fff' }}
-                  />
-                  <Bar dataKey="score" fill="#14b8a6" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </GlassCard>
-
-            <GlassCard title="指标分布">
-              <ResponsiveContainer width="100%" height={280}>
-                <RadarChart data={reportData.radarData}>
-                  <PolarGrid stroke="rgba(255,255,255,0.1)" />
-                  <PolarAngleAxis
-                    dataKey="indicator"
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                  />
-                  <PolarRadiusAxis
-                    angle={30}
-                    domain={[0, 100]}
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
-                  />
-                  <Radar
-                    name="达标率"
-                    dataKey="value"
-                    stroke="#14b8a6"
-                    fill="#14b8a6"
-                    fillOpacity={0.3}
-                  />
-                </RadarChart>
-              </ResponsiveContainer>
-            </GlassCard>
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        </>
+        </GlassCard>
+      )}
+
+      {currentDisplayData && renderReportContent(
+        currentDisplayData,
+        viewingSnapshot ? viewingSnapshot.type : reportType,
+        viewingSnapshot ? viewingSnapshot.startDate : startDate,
+        viewingSnapshot ? viewingSnapshot.endDate : endDate,
+        handleDownloadPDF,
       )}
 
       <GlassCard title="监管台账">

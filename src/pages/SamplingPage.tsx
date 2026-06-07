@@ -79,9 +79,12 @@ export default function SamplingPage() {
     samplingTasks,
     monitoringPoints,
     alerts,
+    patrolRecords,
+    thresholds,
     addSamplingTask,
     updateSamplingTask,
     updateAlert,
+    updatePatrolRecord,
   } = useStore()
 
   const [showNewTaskModal, setShowNewTaskModal] = useState(false)
@@ -151,12 +154,48 @@ export default function SamplingPage() {
       pH: parseFloat(resultForm.pH) || 0,
       residualChlorine: parseFloat(resultForm.residualChlorine) || 0,
     }
+    const now = new Date().toISOString()
     updateSamplingTask(selectedTask.id, {
       results: result,
       photos: photoStubs,
       status: 'completed',
-      completedAt: new Date().toISOString(),
+      completedAt: now,
     })
+
+    if (selectedTask.type === 'recheck') {
+      const patrol = patrolRecords.find((p) => p.recheckTaskId === selectedTask.id)
+      if (patrol) {
+        const recheckValues: Record<string, number> = {}
+        if (result.flow) recheckValues['flow'] = result.flow
+        if (result.temperature) recheckValues['temperature'] = result.temperature
+        if (result.turbidity) recheckValues['turbidity'] = result.turbidity
+        if (result.pH) recheckValues['pH'] = result.pH
+        if (result.residualChlorine) recheckValues['residualChlorine'] = result.residualChlorine
+
+        const exceedIndicators: string[] = []
+        selectedTask.indicators.forEach((ind) => {
+          const val = recheckValues[ind]
+          if (val !== undefined) {
+            const threshold = thresholds.find((t) => t.indicator === ind)
+            if (threshold && (val < threshold.min || val > threshold.max)) {
+              exceedIndicators.push(INDICATORS.find((i) => i.key === ind)?.label || ind)
+            }
+          }
+        })
+
+        const resultSummary = exceedIndicators.length > 0
+          ? `复检仍有超标指标: ${exceedIndicators.join('、')}`
+          : '复检各项指标均正常'
+
+        updatePatrolRecord(patrol.id, {
+          recheckResult: resultSummary,
+          recheckResolvedAt: now,
+          recheckPhotos: photoStubs.length > 0 ? [...photoStubs] : undefined,
+          recheckValues,
+        })
+      }
+    }
+
     setShowResultForm(false)
     setResultForm(emptyResultForm())
     setPhotoStubs([])
@@ -551,6 +590,15 @@ export default function SamplingPage() {
                   <p className="text-white/50 text-sm">备注</p>
                   <p className="text-white text-sm">{selectedTask.notes}</p>
                 </div>
+              )}
+
+              {selectedTask.status === 'pending' && (
+                <button
+                  onClick={() => updateSamplingTask(selectedTask.id, { status: 'in_progress' })}
+                  className="w-full rounded-lg bg-spring-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-spring-800 transition-colors"
+                >
+                  开始执行
+                </button>
               )}
 
               {selectedTask.status === 'in_progress' && !showResultForm && (

@@ -173,7 +173,7 @@ export default function MapPage() {
                         查看详情
                       </button>
                       <button
-                        onClick={() => navigate('/alerts')}
+                        onClick={() => navigate(`/alerts?pointId=${point.id}`)}
                         className="flex-1 flex items-center justify-center gap-1 text-xs bg-amber-500 text-white rounded px-3 py-1.5 hover:bg-amber-600 transition-colors"
                       >
                         <AlertTriangle size={12} />
@@ -226,7 +226,7 @@ export default function MapPage() {
                         <div
                           key={p.id}
                           className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5"
-                          onClick={() => navigate(`/detail?pointId=${p.id}`)}
+                          onClick={() => navigate(`/detail?pointId=${p.id}&zone=${encodeURIComponent(zone.name)}`)}
                         >
                           <span
                             className="w-2 h-2 rounded-full shrink-0"
@@ -238,6 +238,15 @@ export default function MapPage() {
                       {zonePoints.length === 0 && (
                         <div className="text-xs text-gray-400">暂无监测点</div>
                       )}
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => navigate(`/alerts?zone=${encodeURIComponent(zone.name)}`)}
+                        className="flex-1 flex items-center justify-center gap-1 text-xs bg-amber-500 text-white rounded px-3 py-1.5 hover:bg-amber-600 transition-colors"
+                      >
+                        <AlertTriangle size={12} />
+                        查看区内告警
+                      </button>
                     </div>
                   </div>
                 </Popup>

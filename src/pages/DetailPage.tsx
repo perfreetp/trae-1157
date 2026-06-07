@@ -10,7 +10,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from 'recharts'
-import { ChevronDown, Inbox, ArrowRightLeft } from 'lucide-react'
+import { ChevronDown, Inbox, ArrowRightLeft, Shield } from 'lucide-react'
 import type { WaterQualityRecord, ThresholdConfig } from '@/types'
 import { useStore } from '@/store'
 import GlassCard from '@/components/GlassCard'
@@ -155,6 +155,7 @@ export default function DetailPage() {
   const thresholds = useStore((s) => s.thresholds)
 
   const pointId = searchParams.get('pointId') || monitoringPoints[0]?.id || ''
+  const zoneName = searchParams.get('zone') || ''
   const selectedPoint = monitoringPoints.find((p) => p.id === pointId) || monitoringPoints[0]
 
   const timeRangeMs = TIME_RANGES.find((r) => r.label === timeRange)?.ms ?? 24 * 3600000
@@ -192,7 +193,9 @@ export default function DetailPage() {
   const paginatedRecords = tableRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   function handlePointChange(id: string) {
-    setSearchParams({ pointId: id })
+    const params: Record<string, string> = { pointId: id }
+    if (zoneName) params.zone = zoneName
+    setSearchParams(params)
     setPage(1)
     setDropdownOpen(false)
   }
@@ -252,6 +255,12 @@ export default function DetailPage() {
             <span className="text-white font-medium">{selectedPoint.name}</span>
             <StatusBadge level={STATUS_MAP[selectedPoint.status]?.level || 'online'} label={STATUS_MAP[selectedPoint.status]?.label || '在线'} />
             <span className="text-white/40">{selectedPoint.area}</span>
+            {zoneName && (
+              <span className="flex items-center gap-1 text-spring-400 text-xs">
+                <Shield className="w-3.5 h-3.5" />
+                {zoneName}
+              </span>
+            )}
             <span className="text-white/40">
               最近上报: {lastReportDisplay ?? '当前时间范围内无数据'}
             </span>
