@@ -166,25 +166,29 @@ export default function SamplingPage() {
       const patrol = patrolRecords.find((p) => p.recheckTaskId === selectedTask.id)
       if (patrol) {
         const recheckValues: Record<string, number> = {}
-        if (result.flow) recheckValues['flow'] = result.flow
-        if (result.temperature) recheckValues['temperature'] = result.temperature
-        if (result.turbidity) recheckValues['turbidity'] = result.turbidity
-        if (result.pH) recheckValues['pH'] = result.pH
-        if (result.residualChlorine) recheckValues['residualChlorine'] = result.residualChlorine
+        selectedTask.indicators.forEach((ind) => {
+          const val = result[ind as keyof WaterQualityRecord]
+          if (typeof val === 'number') recheckValues[ind] = val
+        })
 
-        const exceedIndicators: string[] = []
+        const summaryParts: string[] = []
+        let hasExceed = false
         selectedTask.indicators.forEach((ind) => {
           const val = recheckValues[ind]
           if (val !== undefined) {
+            const label = INDICATORS.find((i) => i.key === ind)?.label || ind
             const threshold = thresholds.find((t) => t.indicator === ind)
             if (threshold && (val < threshold.min || val > threshold.max)) {
-              exceedIndicators.push(INDICATORS.find((i) => i.key === ind)?.label || ind)
+              summaryParts.push(`${label}: ${val} (超标)`)
+              hasExceed = true
+            } else {
+              summaryParts.push(`${label}: ${val} (正常)`)
             }
           }
         })
 
-        const resultSummary = exceedIndicators.length > 0
-          ? `复检仍有超标指标: ${exceedIndicators.join('、')}`
+        const resultSummary = hasExceed
+          ? `复检仍有超标指标: ${summaryParts.join('、')}`
           : '复检各项指标均正常'
 
         updatePatrolRecord(patrol.id, {

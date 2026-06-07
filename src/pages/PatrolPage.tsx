@@ -40,12 +40,21 @@ const INDICATOR_LABELS_PATROL: Record<string, string> = {
   residualChlorine: '余氯',
 };
 
+const RECHECK_INDICATORS = [
+  { key: 'flow', label: '流量' },
+  { key: 'temperature', label: '水温' },
+  { key: 'turbidity', label: '浊度' },
+  { key: 'pH', label: '酸碱度' },
+  { key: 'residualChlorine', label: '余氯' },
+];
+
 interface RecheckModalState {
   open: boolean;
   recordId: string;
   assignee: string;
   notes: string;
   submitted: boolean;
+  indicators: string[];
 }
 
 export default function PatrolPage() {
@@ -80,6 +89,7 @@ export default function PatrolPage() {
     assignee: '',
     notes: '',
     submitted: false,
+    indicators: [],
   });
 
   const toggleTag = (tag: string) => {
@@ -125,6 +135,7 @@ export default function PatrolPage() {
       assignee: '',
       notes: '',
       submitted: false,
+      indicators: [],
     });
   };
 
@@ -138,6 +149,23 @@ export default function PatrolPage() {
     const record = patrolRecords.find(r => r.id === recheckModal.recordId);
     if (!record) return;
 
+    const effectiveIndicators = recheckModal.indicators.length > 0
+      ? recheckModal.indicators
+      : RECHECK_INDICATORS.map(i => i.key);
+
+    const indicatorLabels = recheckModal.indicators.length > 0
+      ? recheckModal.indicators
+          .map(key => RECHECK_INDICATORS.find(i => i.key === key)?.label)
+          .filter(Boolean)
+          .join('、')
+      : null;
+
+    const notesParts = [recheckModal.notes.trim()];
+    if (indicatorLabels) {
+      notesParts.unshift(`复检指标: ${indicatorLabels}`);
+    }
+    const finalNotes = notesParts.filter(Boolean).join('\n');
+
     const taskId = `task-recheck-${Date.now()}`;
     const newTask: SamplingTask = {
       id: taskId,
@@ -147,8 +175,8 @@ export default function PatrolPage() {
       status: 'pending',
       createdAt: new Date().toISOString(),
       type: 'recheck',
-      indicators: [],
-      notes: recheckModal.notes.trim(),
+      indicators: effectiveIndicators,
+      notes: finalNotes,
     };
 
     addSamplingTask(newTask);
@@ -547,6 +575,48 @@ export default function PatrolPage() {
                 </button>
               </div>
               <div className="space-y-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm text-white/60">复检指标</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allKeys = RECHECK_INDICATORS.map(i => i.key);
+                        setRecheckModal(prev => ({
+                          ...prev,
+                          indicators: prev.indicators.length === allKeys.length ? [] : allKeys,
+                        }));
+                      }}
+                      className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      全选
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {RECHECK_INDICATORS.map(indicator => (
+                      <button
+                        key={indicator.key}
+                        type="button"
+                        onClick={() =>
+                          setRecheckModal(prev => ({
+                            ...prev,
+                            indicators: prev.indicators.includes(indicator.key)
+                              ? prev.indicators.filter(k => k !== indicator.key)
+                              : [...prev.indicators, indicator.key],
+                          }))
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          recheckModal.indicators.includes(indicator.key)
+                            ? 'bg-blue-500/30 text-blue-300 border border-blue-500/50'
+                            : 'bg-white/5 text-white/50 border border-white/10 hover:border-white/30'
+                        }`}
+                      >
+                        {indicator.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-white/30 mt-1.5">未选择则默认检测全部指标</p>
+                </div>
                 <div>
                   <label className="block text-sm text-white/60 mb-1">复检人</label>
                   <div className="relative">

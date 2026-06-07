@@ -24,8 +24,14 @@ import {
   AlertTriangle,
   ClipboardList,
   RotateCcw,
+  Shield,
+  Sun,
+  Sunset,
+  Moon,
+  ClipboardCheck,
+  Check,
 } from 'lucide-react'
-import type { AlertRecord, HandoverNote } from '@/types'
+import type { AlertRecord, HandoverNote, ShiftHandover, ShiftType } from '@/types'
 import { useStore } from '@/store'
 import GlassCard from '@/components/GlassCard'
 import StatusBadge from '@/components/StatusBadge'
@@ -55,8 +61,29 @@ const PIE_COLORS = ['#EF4444', '#F59E0B', '#06B6D4']
 type DetailStep = 'processing' | 'closing'
 type ViewMode = 'list' | 'handover'
 
+const PROTECTION_ZONES = [
+  {
+    name: '一级水源保护区',
+    positions: [[24.975, 110.285], [24.995, 110.290], [24.990, 110.315], [24.970, 110.310]] as [number, number][],
+  },
+  {
+    name: '二级水源保护区',
+    positions: [[25.020, 110.310], [25.045, 110.320], [25.040, 110.355], [25.015, 110.345]] as [number, number][],
+  },
+  {
+    name: '碧溪水源保护区',
+    positions: [[24.940, 110.265], [24.965, 110.270], [24.960, 110.295], [24.935, 110.290]] as [number, number][],
+  },
+]
+
+function isPointInZone(lat: number, lng: number, positions: [number, number][]): boolean {
+  const lats = positions.map(p => p[0])
+  const lngs = positions.map(p => p[1])
+  return lat >= Math.min(...lats) && lat <= Math.max(...lats) && lng >= Math.min(...lngs) && lng <= Math.max(...lngs)
+}
+
 export default function AlertsPage() {
-  const { alerts, thresholds, updateAlert, updateThreshold } = useStore()
+  const { alerts, thresholds, monitoringPoints, shiftHandovers, addShiftHandover, confirmShiftHandover, updateAlert, updateThreshold } = useStore()
   const [searchParams] = useSearchParams()
 
   const urlPointId = searchParams.get('pointId') || ''
@@ -85,6 +112,23 @@ export default function AlertsPage() {
   const [contextPointId, setContextPointId] = useState(urlPointId)
   const [contextZone, setContextZone] = useState(urlZone)
 
+  const [showShiftModal, setShowShiftModal] = useState(false)
+  const [shiftType, setShiftType] = useState<ShiftType>('morning')
+  const [shiftFrom, setShiftFrom] = useState('')
+  const [shiftTo, setShiftTo] = useState('')
+  const [shiftNote, setShiftNote] = useState('')
+  const [confirmHandoverId, setConfirmHandoverId] = useState<string | null>(null)
+  const [confirmHandoverBy, setConfirmHandoverBy] = useState('')
+
+  const zonePointIds = useMemo(() => {
+    if (!contextZone) return []
+    const zone = PROTECTION_ZONES.find(z => z.name === contextZone)
+    if (!zone) return []
+    return monitoringPoints
+      .filter(p => isPointInZone(p.location.lat, p.location.lng, zone.positions))
+      .map(p => p.id)
+  }, [contextZone, monitoringPoints])
+
   const filteredAlerts = useMemo(() => {
     return alerts
       .filter((a) => {
@@ -104,16 +148,31 @@ export default function AlertsPage() {
         if (contextPointId && a.pointId !== contextPointId) return false
         return true
       })
+      .filter((a) => {
+        if (contextZone) {
+          if (zonePointIds.length === 0) return false
+          return zonePointIds.includes(a.pointId)
+        }
+        return true
+      })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  }, [alerts, statusFilter, levelFilter, searchText, contextPointId])
+  }, [alerts, statusFilter, levelFilter, searchText, contextPointId, contextZone, zonePointIds])
 
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
 
   const handoverGroups = useMemo(() => {
-    const source = contextPointId
+    let source = contextPointId
       ? alerts.filter((a) => a.pointId === contextPointId)
       : alerts
+
+    if (contextZone) {
+      if (zonePointIds.length === 0) {
+        source = []
+      } else {
+        source = source.filter((a) => zonePointIds.includes(a.pointId))
+      }
+    }
 
     const todayNew = source.filter((a) => {
       const created = new Date(a.createdAt)
@@ -129,7 +188,7 @@ export default function AlertsPage() {
     const closed = source.filter((a) => a.status === 'resolved')
 
     return { todayNew, processing, overtime, closed }
-  }, [alerts, contextPointId])
+  }, [alerts, contextPointId, contextZone, zonePointIds])
 
   const getAssignee = (alert: AlertRecord): string => {
     if (alert.assignedTo) return alert.assignedTo
@@ -232,6 +291,7 @@ export default function AlertsPage() {
       processingAt: selectedAlert.processingAt,
       processingBy: selectedAlert.processingBy,
       processingNote: selectedAlert.processingNote,
+      disposition: selectedAlert.disposition,
     }
     prev.push(currentDisposition)
     updateAlert(selectedAlert.id, {
@@ -254,6 +314,7 @@ export default function AlertsPage() {
       processingAt: selectedAlert.processingAt,
       processingBy: selectedAlert.processingBy,
       processingNote: selectedAlert.processingNote,
+      disposition: selectedAlert.disposition,
       resolvedAt: selectedAlert.resolvedAt,
       resolvedBy: selectedAlert.resolvedBy,
       resolvedResult: selectedAlert.resolvedResult,
@@ -323,6 +384,51 @@ export default function AlertsPage() {
     setHandoverNote('')
   }
 
+  const handleCreateShiftHandover = () => {
+    const source = contextPointId
+      ? alerts.filter((a) => a.pointId === contextPointId)
+      : contextZone && zonePointIds.length > 0
+        ? alerts.filter((a) => zonePointIds.includes(a.pointId))
+        : alerts
+
+    const unclosed = source.filter((a) => a.status !== 'resolved')
+    const overtime = source.filter((a) => {
+      if (a.status === 'resolved') return false
+      const created = new Date(a.createdAt)
+      const hours = (Date.now() - created.getTime()) / (1000 * 60 * 60)
+      return hours > 24
+    })
+    const criticalAlerts = source.filter((a) => a.level === 'critical')
+    const highRiskPoints = [...new Set(criticalAlerts.map((a) => a.pointName))]
+    const alertIds = [...new Set([...unclosed, ...overtime].map((a) => a.id))]
+
+    const handover: ShiftHandover = {
+      id: `shift-${Date.now()}`,
+      shiftType,
+      fromPerson: shiftFrom.trim(),
+      toPerson: shiftTo.trim(),
+      note: shiftNote.trim(),
+      unclosedCount: unclosed.length,
+      overtimeCount: overtime.length,
+      highRiskPoints,
+      alertIds,
+      createdAt: new Date().toISOString(),
+    }
+    addShiftHandover(handover)
+    setShowShiftModal(false)
+    setShiftFrom('')
+    setShiftTo('')
+    setShiftNote('')
+    setShiftType('morning')
+  }
+
+  const handleConfirmHandover = () => {
+    if (!confirmHandoverId || !confirmHandoverBy.trim()) return
+    confirmShiftHandover(confirmHandoverId, confirmHandoverBy.trim())
+    setConfirmHandoverId(null)
+    setConfirmHandoverBy('')
+  }
+
   const renderHandoverCard = (alert: AlertRecord) => (
     <div
       key={alert.id}
@@ -368,6 +474,12 @@ export default function AlertsPage() {
     </div>
   )
 
+  const SHIFT_TYPE_LABELS: Record<ShiftType, { label: string; icon: typeof Sun }> = {
+    morning: { label: '早班', icon: Sun },
+    afternoon: { label: '中班', icon: Sunset },
+    night: { label: '夜班', icon: Moon },
+  }
+
   const renderHandoverView = () => {
     const groups = [
       { key: 'todayNew', label: '今日新增', count: handoverGroups.todayNew.length, color: 'border-l-data-red', items: handoverGroups.todayNew },
@@ -376,22 +488,115 @@ export default function AlertsPage() {
       { key: 'closed', label: '已关闭', count: handoverGroups.closed.length, color: 'border-l-data-green', items: handoverGroups.closed },
     ]
     return (
-      <div className="grid grid-cols-2 gap-4">
-        {groups.map((g) => (
-          <div key={g.key} className={`rounded-xl bg-surface-50/50 border-l-4 ${g.color} p-4`}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-white font-medium">{g.label}</h3>
-              <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-white/70">{g.count}</span>
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-4">
+          {groups.map((g) => (
+            <div key={g.key} className={`rounded-xl bg-surface-50/50 border-l-4 ${g.color} p-4`}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-white font-medium">{g.label}</h3>
+                <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-white/70">{g.count}</span>
+              </div>
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {g.items.length === 0 ? (
+                  <p className="text-white/20 text-sm text-center py-6">暂无</p>
+                ) : (
+                  g.items.map(renderHandoverCard)
+                )}
+              </div>
             </div>
-            <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-              {g.items.length === 0 ? (
-                <p className="text-white/20 text-sm text-center py-6">暂无</p>
-              ) : (
-                g.items.map(renderHandoverCard)
-              )}
+          ))}
+        </div>
+
+        {shiftHandovers.length > 0 && (
+          <div>
+            <h3 className="text-white font-medium mb-3">交接单记录</h3>
+            <div className="space-y-3">
+              {shiftHandovers.map((sh) => {
+                const typeInfo = SHIFT_TYPE_LABELS[sh.shiftType]
+                const Icon = typeInfo.icon
+                return (
+                  <div key={sh.id} className="rounded-xl bg-surface-50/50 border border-white/5 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-spring-700/30 flex items-center justify-center">
+                          <Icon className="w-4 h-4 text-spring-400" />
+                        </div>
+                        <span className="text-white font-medium">{typeInfo.label}</span>
+                        <span className="text-white/30 text-xs">|</span>
+                        <span className="text-white/50 text-xs">{sh.fromPerson} → {sh.toPerson}</span>
+                      </div>
+                      <span className="text-xs text-white/30">{new Date(sh.createdAt).toLocaleString('zh-CN')}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs mb-3">
+                      <span className="text-data-amber">{sh.unclosedCount} 未关闭</span>
+                      <span className="text-data-red">{sh.overtimeCount} 超时</span>
+                      <span className="text-data-red">{sh.highRiskPoints.length} 重点点位</span>
+                    </div>
+                    {sh.highRiskPoints.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        {sh.highRiskPoints.map((p) => (
+                          <span key={p} className="rounded-full bg-data-red/10 border border-data-red/20 px-2 py-0.5 text-xs text-data-red">{p}</span>
+                        ))}
+                      </div>
+                    )}
+                    {sh.note && (
+                      <p className="text-xs text-white/40 mb-3">{sh.note}</p>
+                    )}
+                    <div className="border-t border-white/5 pt-3">
+                      {sh.confirmedAt ? (
+                        <div className="flex items-center gap-2 text-xs">
+                          <Check className="w-3.5 h-3.5 text-data-green" />
+                          <span className="text-data-green font-medium">已确认</span>
+                          <span className="text-white/30">{new Date(sh.confirmedAt).toLocaleString('zh-CN')}</span>
+                          <span className="text-white/40">确认人: {sh.confirmedBy}</span>
+                        </div>
+                      ) : (
+                        <div>
+                          {confirmHandoverId === sh.id ? (
+                            <div className="flex items-center gap-2">
+                              <div className="relative flex-1">
+                                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+                                <input
+                                  value={confirmHandoverBy}
+                                  onChange={(e) => setConfirmHandoverBy(e.target.value)}
+                                  placeholder="确认人姓名"
+                                  className="w-full rounded-lg bg-surface-100 border border-white/10 pl-9 pr-3 py-1.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-spring-500"
+                                  onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmHandover() }}
+                                  autoFocus
+                                />
+                              </div>
+                              <button
+                                onClick={handleConfirmHandover}
+                                disabled={!confirmHandoverBy.trim()}
+                                className="rounded-lg bg-spring-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-spring-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                确认
+                              </button>
+                              <button
+                                onClick={() => { setConfirmHandoverId(null); setConfirmHandoverBy('') }}
+                                className="rounded-lg bg-surface-200 px-3 py-1.5 text-xs font-medium text-white/60 hover:text-white transition-colors"
+                              >
+                                取消
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmHandoverId(sh.id)}
+                              className="flex items-center gap-1.5 text-xs text-spring-400 hover:text-spring-300 transition-colors"
+                            >
+                              <Shield className="w-3.5 h-3.5" />
+                              待确认 · 点击确认
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
-        ))}
+        )}
       </div>
     )
   }
@@ -406,6 +611,7 @@ export default function AlertsPage() {
     resolvedBy?: string
     resolvedResult?: string
     resolvedNote?: string
+    disposition?: string
   }, label: string) => (
     <div className="rounded-lg bg-surface-100/50 border border-white/5 p-3 mb-3">
       <p className="text-xs text-white/40 mb-2">{label}</p>
@@ -449,7 +655,14 @@ export default function AlertsPage() {
             {disp.resolvedNote}
           </div>
         )}
-        {!disp.confirmedAt && !disp.processingAt && !disp.resolvedAt && (
+        {disp.disposition && (
+          <div className="flex items-start gap-1.5 text-white/70 pl-5">
+            <FileText className="w-3 h-3 mt-0.5 shrink-0 text-data-amber" />
+            <span className="text-white/40 mr-1">处置说明:</span>
+            {disp.disposition}
+          </div>
+        )}
+        {!disp.confirmedAt && !disp.processingAt && !disp.resolvedAt && !disp.disposition && (
           <p className="text-white/30">无详细记录</p>
         )}
       </div>
@@ -464,7 +677,7 @@ export default function AlertsPage() {
             <AlertTriangle className="w-4 h-4 text-spring-400" />
             <span className="text-sm text-spring-300">
               {contextPointId && `当前筛选: ${alerts.find(a => a.pointId === contextPointId)?.pointName || contextPointId}`}
-              {contextZone && `当前范围: ${contextZone}`}
+              {contextZone && `当前范围: ${contextZone}${zonePointIds.length > 0 ? ` (${zonePointIds.length}个点位)` : ''}`}
             </span>
             <button
               onClick={() => { setContextPointId(''); setContextZone('') }}
@@ -539,9 +752,18 @@ export default function AlertsPage() {
           )}
 
           {viewMode === 'handover' && (
-            <div className="flex items-center gap-2 ml-auto text-xs text-white/40">
-              <ClipboardList className="w-4 h-4" />
-              值班交接视图 · 按状态分组展示
+            <div className="flex items-center gap-2 ml-auto">
+              <span className="text-xs text-white/40 flex items-center gap-2">
+                <ClipboardList className="w-4 h-4" />
+                值班交接视图 · 按状态分组展示
+              </span>
+              <button
+                onClick={() => setShowShiftModal(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-spring-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-spring-800 transition-colors"
+              >
+                <ClipboardCheck className="w-3.5 h-3.5" />
+                班次交接
+              </button>
             </div>
           )}
         </div>
@@ -817,6 +1039,87 @@ export default function AlertsPage() {
         </div>
       )}
 
+      {showShiftModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => { setShowShiftModal(false); setShiftFrom(''); setShiftTo(''); setShiftNote(''); setShiftType('morning') }}>
+          <div className="w-full max-w-md rounded-xl bg-surface-50 border border-white/10 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-bold text-white">班次交接</h2>
+              <button onClick={() => { setShowShiftModal(false); setShiftFrom(''); setShiftTo(''); setShiftNote(''); setShiftType('morning') }} className="text-white/50 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="block text-sm text-white/70 mb-1.5">班次</label>
+                <div className="flex rounded-lg bg-surface-100 p-1">
+                  {([
+                    { value: 'morning' as ShiftType, label: '早班', icon: Sun },
+                    { value: 'afternoon' as ShiftType, label: '中班', icon: Sunset },
+                    { value: 'night' as ShiftType, label: '夜班', icon: Moon },
+                  ]).map((s) => (
+                    <button
+                      key={s.value}
+                      onClick={() => setShiftType(s.value)}
+                      className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${shiftType === s.value ? 'bg-spring-700 text-white' : 'text-white/40 hover:text-white'}`}
+                    >
+                      <s.icon className="w-3.5 h-3.5" />
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-white/70 mb-1.5">交出人</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+                  <input
+                    value={shiftFrom}
+                    onChange={(e) => setShiftFrom(e.target.value)}
+                    placeholder="交出人姓名"
+                    className="w-full rounded-lg bg-surface-100 border border-white/10 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-spring-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-white/70 mb-1.5">接收人</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+                  <input
+                    value={shiftTo}
+                    onChange={(e) => setShiftTo(e.target.value)}
+                    placeholder="接收人姓名"
+                    className="w-full rounded-lg bg-surface-100 border border-white/10 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-spring-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-white/70 mb-1.5">交接备注</label>
+                <textarea
+                  value={shiftNote}
+                  onChange={(e) => setShiftNote(e.target.value)}
+                  placeholder="描述交接事项和注意事项..."
+                  rows={3}
+                  className="w-full rounded-lg bg-surface-100 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-spring-500 resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowShiftModal(false); setShiftFrom(''); setShiftTo(''); setShiftNote(''); setShiftType('morning') }}
+                className="flex-1 rounded-lg bg-surface-200 px-4 py-2.5 text-sm font-medium text-white/60 hover:text-white transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleCreateShiftHandover}
+                disabled={!shiftFrom.trim() || !shiftTo.trim()}
+                className="flex-1 rounded-lg bg-spring-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-spring-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                创建交接单
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedAlert && (() => {
         const current = alerts.find((a) => a.id === selectedAlert.id) || selectedAlert
         const isResolved = current.status === 'resolved'
@@ -1071,6 +1374,49 @@ export default function AlertsPage() {
                   </div>
                 </div>
               )}
+
+              {(() => {
+                const relatedHandovers = shiftHandovers.filter((sh) => sh.alertIds.includes(current.id))
+                if (relatedHandovers.length === 0) return null
+                const SHIFT_LABELS: Record<ShiftType, { label: string; icon: typeof Sun }> = {
+                  morning: { label: '早班', icon: Sun },
+                  afternoon: { label: '中班', icon: Sunset },
+                  night: { label: '夜班', icon: Moon },
+                }
+                return (
+                  <div className="border-t border-white/10 pt-4 mt-4">
+                    <h3 className="text-white font-medium mb-3">班次交接记录</h3>
+                    <div className="space-y-2">
+                      {relatedHandovers.map((sh) => {
+                        const typeInfo = SHIFT_LABELS[sh.shiftType]
+                        const Icon = typeInfo.icon
+                        return (
+                          <div key={sh.id} className="rounded-lg bg-surface-100/50 border border-white/5 p-3 text-xs">
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <Icon className="w-3.5 h-3.5 text-spring-400" />
+                              <span className="text-white/70 font-medium">{typeInfo.label}</span>
+                              <span className="text-white/30">|</span>
+                              <span className="text-white/50">{sh.fromPerson} → {sh.toPerson}</span>
+                              <span className="text-white/30 ml-auto">{new Date(sh.createdAt).toLocaleString('zh-CN')}</span>
+                            </div>
+                            <div className="flex items-center gap-3 text-white/40">
+                              <span>{sh.unclosedCount} 未关闭</span>
+                              <span>{sh.overtimeCount} 超时</span>
+                              <span>{sh.highRiskPoints.length} 重点点位</span>
+                            </div>
+                            {sh.confirmedAt && (
+                              <div className="flex items-center gap-1.5 mt-1.5 text-data-green">
+                                <Check className="w-3 h-3" />
+                                已确认 · {new Date(sh.confirmedAt).toLocaleString('zh-CN')} · {sh.confirmedBy}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           </div>
         )

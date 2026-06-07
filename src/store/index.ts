@@ -13,6 +13,7 @@ import type {
   SummaryStat,
   HandoverNote,
   DispositionRecord,
+  ShiftHandover,
 } from '@/types'
 import {
   monitoringPoints as initialPoints,
@@ -30,6 +31,7 @@ interface StoreState {
   samplingTasks: SamplingTask[]
   patrolRecords: PatrolRecord[]
   thresholds: ThresholdConfig[]
+  shiftHandovers: ShiftHandover[]
 
   addSamplingTask: (task: SamplingTask) => void
   updateSamplingTask: (id: string, updates: Partial<SamplingTask>) => void
@@ -38,6 +40,8 @@ interface StoreState {
   updateAlert: (id: string, updates: Partial<AlertRecord>) => void
   updateThreshold: (indicator: string, updates: Partial<ThresholdConfig>) => void
   addAlert: (alert: AlertRecord) => void
+  addShiftHandover: (handover: ShiftHandover) => void
+  confirmShiftHandover: (id: string, confirmedBy: string) => void
 }
 
 export const useStore = create<StoreState>((set) => ({
@@ -47,6 +51,7 @@ export const useStore = create<StoreState>((set) => ({
   samplingTasks: initialTasks,
   patrolRecords: initialPatrols,
   thresholds: initialThresholds,
+  shiftHandovers: [],
 
   addSamplingTask: (task) =>
     set((state) => ({ samplingTasks: [...state.samplingTasks, task] })),
@@ -84,6 +89,23 @@ export const useStore = create<StoreState>((set) => ({
 
   addAlert: (alert) =>
     set((state) => ({ alerts: [...state.alerts, alert] })),
+
+  addShiftHandover: (handover) =>
+    set((state) => {
+      const updatedAlerts = state.alerts.map((a) =>
+        handover.alertIds.includes(a.id)
+          ? { ...a, shiftHandoverIds: [...(a.shiftHandoverIds || []), handover.id] }
+          : a
+      )
+      return { shiftHandovers: [...state.shiftHandovers, handover], alerts: updatedAlerts }
+    }),
+
+  confirmShiftHandover: (id, confirmedBy) =>
+    set((state) => ({
+      shiftHandovers: state.shiftHandovers.map((h) =>
+        h.id === id ? { ...h, confirmedAt: new Date().toISOString(), confirmedBy } : h
+      ),
+    })),
 }))
 
 const generateAlertTrends = () => {

@@ -17,6 +17,23 @@ export interface WaterQualityRecord {
   residualChlorine: number
 }
 
+export type ShiftType = 'morning' | 'afternoon' | 'night'
+
+export interface ShiftHandover {
+  id: string
+  shiftType: ShiftType
+  fromPerson: string
+  toPerson: string
+  note: string
+  unclosedCount: number
+  overtimeCount: number
+  highRiskPoints: string[]
+  alertIds: string[]
+  createdAt: string
+  confirmedAt?: string
+  confirmedBy?: string
+}
+
 export interface HandoverNote {
   id: string
   fromPerson: string
@@ -35,6 +52,7 @@ export interface DispositionRecord {
   resolvedBy?: string
   resolvedResult?: string
   resolvedNote?: string
+  disposition?: string
 }
 
 export interface AlertRecord {
@@ -61,6 +79,7 @@ export interface AlertRecord {
   assignedTo?: string
   handoverNotes?: HandoverNote[]
   previousDispositions?: DispositionRecord[]
+  shiftHandoverIds?: string[]
 }
 
 export interface SamplingTask {

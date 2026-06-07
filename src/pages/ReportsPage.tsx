@@ -27,6 +27,7 @@ import {
   History,
   Eye,
   X,
+  ArrowLeftRight,
 } from 'lucide-react'
 import type {
   WaterQualityRecord,
@@ -405,6 +406,8 @@ export default function ReportsPage() {
   const [historyFilterDateEnd, setHistoryFilterDateEnd] = useState('')
   const [viewingSnapshot, setViewingSnapshot] = useState<ReportSnapshot | null>(null)
   const [showHistoryPanel, setShowHistoryPanel] = useState(false)
+  const [compareMode, setCompareMode] = useState(false)
+  const [compareIds, setCompareIds] = useState<[string, string]>(['', ''])
 
   const stopReportPoints = useMemo(() => {
     const now = Date.now()
@@ -563,6 +566,34 @@ export default function ReportsPage() {
       }
     : reportData
 
+  const comparingSnapshots = useMemo(() => {
+    if (!compareIds[0] || !compareIds[1]) return null
+    const a = reportHistory.find((s) => s.id === compareIds[0])
+    const b = reportHistory.find((s) => s.id === compareIds[1])
+    if (!a || !b) return null
+    return [a, b] as [ReportSnapshot, ReportSnapshot]
+  }, [compareIds, reportHistory])
+
+  const handleCompareCheck = useCallback((id: string, checked: boolean) => {
+    setCompareIds((prev) => {
+      if (checked) {
+        if (prev[0] === id || prev[1] === id) return prev
+        if (!prev[0]) return [id, prev[1]]
+        if (!prev[1]) return [prev[0], id]
+        return prev
+      } else {
+        if (prev[0] === id) return ['', prev[1]]
+        if (prev[1] === id) return [prev[0], '']
+        return prev
+      }
+    })
+  }, [])
+
+  const handleExitCompare = useCallback(() => {
+    setCompareIds(['', ''])
+    setCompareMode(false)
+  }, [])
+
   return (
     <div className="space-y-6 animate-fade-in">
       {toastVisible && (
@@ -626,6 +657,22 @@ export default function ReportsPage() {
             <History className="h-4 w-4" />
             报表历史 ({reportHistory.length})
           </button>
+          <button
+            onClick={() => {
+              setCompareMode(!compareMode)
+              if (!compareMode) {
+                setViewingSnapshot(null)
+              } else {
+                setCompareIds(['', ''])
+              }
+            }}
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              compareMode ? 'bg-spring-700 text-white' : 'bg-surface-50 text-white hover:bg-surface-100'
+            }`}
+          >
+            <ArrowLeftRight className="h-4 w-4" />
+            对比
+          </button>
         </div>
       </div>
 
@@ -640,6 +687,22 @@ export default function ReportsPage() {
             className="ml-auto text-xs text-white/50 hover:text-white transition-colors"
           >
             返回当前报表
+          </button>
+        </div>
+      )}
+
+      {comparingSnapshots && (
+        <div className="flex items-center gap-2 rounded-lg bg-spring-700/20 border border-spring-500/30 px-4 py-2">
+          <ArrowLeftRight className="w-4 h-4 text-spring-400" />
+          <span className="text-sm text-spring-300">
+            报表对比: {comparingSnapshots[0].type === 'daily' ? '日报' : '月报'}({comparingSnapshots[0].startDate} 至 {comparingSnapshots[0].endDate}) vs {comparingSnapshots[1].type === 'daily' ? '日报' : '月报'}({comparingSnapshots[1].startDate} 至 {comparingSnapshots[1].endDate})
+          </span>
+          <button
+            onClick={handleExitCompare}
+            className="ml-auto flex items-center gap-1 text-xs text-white/50 hover:text-white transition-colors"
+          >
+            <X className="w-3 h-3" />
+            退出对比
           </button>
         </div>
       )}
@@ -722,13 +785,22 @@ export default function ReportsPage() {
                           </div>
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <button
-                            onClick={() => setViewingSnapshot(snapshot)}
-                            className="text-spring-500 hover:text-spring-400 text-xs flex items-center gap-1 mx-auto"
-                          >
-                            <Eye className="w-3 h-3" />
-                            查看
-                          </button>
+                          {compareMode ? (
+                            <input
+                              type="checkbox"
+                              checked={compareIds[0] === snapshot.id || compareIds[1] === snapshot.id}
+                              onChange={(e) => handleCompareCheck(snapshot.id, e.target.checked)}
+                              className="h-4 w-4 rounded border-white/20 bg-surface-50 text-spring-500 focus:ring-spring-500"
+                            />
+                          ) : (
+                            <button
+                              onClick={() => setViewingSnapshot(snapshot)}
+                              className="text-spring-500 hover:text-spring-400 text-xs flex items-center gap-1 mx-auto"
+                            >
+                              <Eye className="w-3 h-3" />
+                              查看
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -736,17 +808,175 @@ export default function ReportsPage() {
                 </table>
               </div>
             )}
+            {compareMode && (
+              <div className="flex items-center gap-3 mt-2">
+                <span className="text-xs text-gray-500">
+                  {compareIds[0] && compareIds[1] ? '已选择2份报表' : '选择2份报表进行对比'}
+                </span>
+                {compareIds[0] && compareIds[1] && (
+                  <button
+                    className="flex items-center gap-2 rounded-lg bg-spring-700 px-4 py-2 text-sm font-medium text-white hover:bg-spring-600 transition-colors"
+                    onClick={() => showToast('对比报表已生成')}
+                  >
+                    <ArrowLeftRight className="h-4 w-4" />
+                    开始对比
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </GlassCard>
       )}
 
-      {currentDisplayData && renderReportContent(
-        currentDisplayData,
-        viewingSnapshot ? viewingSnapshot.type : reportType,
-        viewingSnapshot ? viewingSnapshot.startDate : startDate,
-        viewingSnapshot ? viewingSnapshot.endDate : endDate,
-        handleDownloadPDF,
-      )}
+      {comparingSnapshots ? (
+        <>
+          <GlassCard>
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold text-white">报表对比</h2>
+              <div className="flex items-center justify-center gap-4 mt-2">
+                <span className="text-sm text-gray-400">
+                  {comparingSnapshots[0].type === 'daily' ? '日报' : '月报'}: {comparingSnapshots[0].startDate} 至 {comparingSnapshots[0].endDate}
+                </span>
+                <ArrowLeftRight className="w-4 h-4 text-spring-400" />
+                <span className="text-sm text-gray-400">
+                  {comparingSnapshots[1].type === 'daily' ? '日报' : '月报'}: {comparingSnapshots[1].startDate} 至 {comparingSnapshots[1].endDate}
+                </span>
+              </div>
+            </div>
+            <div className="overflow-x-auto mb-6">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="py-3 px-4 text-left text-gray-400 font-medium">指标</th>
+                    <th className="py-3 px-4 text-right text-gray-400 font-medium">报表A</th>
+                    <th className="py-3 px-4 text-right text-gray-400 font-medium">报表B</th>
+                    <th className="py-3 px-4 text-right text-gray-400 font-medium">差异</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparingSnapshots[0].summaryStats.map((statA, i) => {
+                    const statB = comparingSnapshots[1].summaryStats[i]
+                    const valA = parseFloat(String(statA.value))
+                    const valB = parseFloat(String(statB.value))
+                    let diff: number
+                    let diffColor: string
+                    if (statA.label === '在线率' || statA.label === '达标率') {
+                      diff = valB - valA
+                      diffColor = diff > 0 ? 'text-data-green' : diff < 0 ? 'text-data-red' : 'text-white/60'
+                    } else if (statA.label === '告警次数') {
+                      diff = valA - valB
+                      diffColor = diff > 0 ? 'text-data-green' : diff < 0 ? 'text-data-red' : 'text-white/60'
+                    } else {
+                      diff = valB - valA
+                      diffColor = 'text-white/60'
+                    }
+                    return (
+                      <tr key={statA.label} className="border-b border-white/5 hover:bg-white/5">
+                        <td className="py-3 px-4 text-white">{statA.label}</td>
+                        <td className="py-3 px-4 text-right font-mono text-white">{statA.value}{statA.suffix || ''}</td>
+                        <td className="py-3 px-4 text-right font-mono text-white">{statB.value}{statB.suffix || ''}</td>
+                        <td className={`py-3 px-4 text-right font-mono ${diffColor}`}>
+                          {diff > 0 ? '+' : ''}{Number(diff.toFixed(1))}{statA.suffix || ''}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </GlassCard>
+
+          <GlassCard title="达标率对比">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="py-3 px-4 text-left text-gray-400 font-medium">指标</th>
+                    <th className="py-3 px-4 text-right text-gray-400 font-medium">报表A达标率</th>
+                    <th className="py-3 px-4 text-right text-gray-400 font-medium">报表B达标率</th>
+                    <th className="py-3 px-4 text-right text-gray-400 font-medium">差异</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparingSnapshots[0].indicatorStats.map((indA, i) => {
+                    const indB = comparingSnapshots[1].indicatorStats[i]
+                    if (!indB) return null
+                    const diff = indB.complianceRate - indA.complianceRate
+                    const diffColor = diff > 0 ? 'text-data-green' : diff < 0 ? 'text-data-red' : 'text-white/60'
+                    return (
+                      <tr key={indA.name} className="border-b border-white/5 hover:bg-white/5">
+                        <td className="py-3 px-4 text-white">{indA.name} ({indA.unit})</td>
+                        <td className={`py-3 px-4 text-right font-mono ${getComplianceClass(indA.complianceRate)}`}>{indA.complianceRate}%</td>
+                        <td className={`py-3 px-4 text-right font-mono ${getComplianceClass(indB.complianceRate)}`}>{indB.complianceRate}%</td>
+                        <td className={`py-3 px-4 text-right font-mono ${diffColor}`}>
+                          {diff > 0 ? '+' : ''}{diff.toFixed(1)}%
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </GlassCard>
+
+          <GlassCard title="告警数量对比">
+            {(() => {
+              const alertsA = comparingSnapshots[0].alertTrends.reduce(
+                (acc, d) => ({ critical: acc.critical + d.critical, warning: acc.warning + d.warning, info: acc.info + d.info }),
+                { critical: 0, warning: 0, info: 0 }
+              )
+              const alertsB = comparingSnapshots[1].alertTrends.reduce(
+                (acc, d) => ({ critical: acc.critical + d.critical, warning: acc.warning + d.warning, info: acc.info + d.info }),
+                { critical: 0, warning: 0, info: 0 }
+              )
+              const rows = [
+                { label: '严重', a: alertsA.critical, b: alertsB.critical },
+                { label: '警告', a: alertsA.warning, b: alertsB.warning },
+                { label: '提示', a: alertsA.info, b: alertsB.info },
+                { label: '总计', a: alertsA.critical + alertsA.warning + alertsA.info, b: alertsB.critical + alertsB.warning + alertsB.info },
+              ]
+              return (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-white/10">
+                        <th className="py-3 px-4 text-left text-gray-400 font-medium">级别</th>
+                        <th className="py-3 px-4 text-right text-gray-400 font-medium">报表A</th>
+                        <th className="py-3 px-4 text-right text-gray-400 font-medium">报表B</th>
+                        <th className="py-3 px-4 text-right text-gray-400 font-medium">差异</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row) => {
+                        const diff = row.a - row.b
+                        const diffColor = diff > 0 ? 'text-data-green' : diff < 0 ? 'text-data-red' : 'text-white/60'
+                        return (
+                          <tr key={row.label} className="border-b border-white/5 hover:bg-white/5">
+                            <td className="py-3 px-4 text-white">{row.label}</td>
+                            <td className="py-3 px-4 text-right font-mono text-white">{row.a}次</td>
+                            <td className="py-3 px-4 text-right font-mono text-white">{row.b}次</td>
+                            <td className={`py-3 px-4 text-right font-mono ${diffColor}`}>
+                              {diff > 0 ? '+' : ''}{diff}次
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })()}
+          </GlassCard>
+        </>
+      ) : currentDisplayData ? (
+        renderReportContent(
+          currentDisplayData,
+          viewingSnapshot ? viewingSnapshot.type : reportType,
+          viewingSnapshot ? viewingSnapshot.startDate : startDate,
+          viewingSnapshot ? viewingSnapshot.endDate : endDate,
+          handleDownloadPDF,
+        )
+      ) : null}
 
       <GlassCard title="监管台账">
         <div className="space-y-6">
